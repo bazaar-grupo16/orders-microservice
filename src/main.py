@@ -1,10 +1,10 @@
 """
-Bazaar Microservice — Application entry-point.
+Orders Microservice — Application entry-point.
 
-Creates the FastAPI application, registers routers, and configures
-structured logging.  Database tables are created on startup via the
-ORM metadata (suitable for development; use Alembic migrations in
-production).
+Creates the FastAPI application, registers routers and error handlers,
+and configures structured logging.  Database tables are created on
+startup via the ORM metadata (suitable for development; use Alembic
+migrations in production).
 """
 
 import logging
@@ -13,6 +13,7 @@ from collections.abc import AsyncIterator
 
 from fastapi import FastAPI
 
+from src.api.error_handlers import register_error_handlers
 from src.api.health import router as health_router
 from src.core.config import get_settings
 from src.core.database import Base, engine, wait_for_db
@@ -43,6 +44,9 @@ app = FastAPI(
     docs_url="/docs",
     redoc_url="/redoc",
 )
+
+# ── Error handlers ───────────────────────────────────
+register_error_handlers(app)
 
 # ── Routers ──────────────────────────────────────────
 app.include_router(health_router)
