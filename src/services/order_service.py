@@ -12,10 +12,15 @@ import uuid
 from sqlalchemy.orm import Session
 
 from src.clients import cart_client, inventory_client
-from src.exceptions import InsufficientStockError
+from src.exceptions import (
+    InsufficientStockError,
+    OrderNotFoundError,
+)
 from src.models.order import Order
 from src.models.order_status import OrderStatus
+from src.models.state_machine import validate_transition
 from src.repositories import order_repository
+from src.schemas.webhook import PaymentStatus
 
 logger = logging.getLogger(__name__)
 
@@ -122,3 +127,99 @@ def create_order(
 
     logger.info("Order created: id=%s status=%s", order.id, order.status)
     return order
+
+
+def resolve_payment(
+    db: Session,
+    *,
+    order_id: uuid.UUID,
+    payment_status: PaymentStatus,
+    transaction_id: str,
+) -> Order:
+    """Process the payment webhook — Paso 6 of the Saga.
+
+    **SUCCESS path:**
+        1. Validate transition PENDIENTE_DE_PAGO → CONFIRMADA.
+        2. Update order status.
+        3. Commit stock reservation (Inventory).
+        4. Clear the user's cart (Cart).
+
+    **FAILED path:**
+        1. Validate transition PENDIENTE_DE_PAGO → PAGO_RECHAZADO.
+        2. Update order status.
+        3. Rollback stock reservation (Inventory) — compensation.
+
+    Parameters
+    ----------
+    order_id:
+        UUID of the order being resolved.
+    payment_status:
+        ``SUCCESS`` or ``FAILED`` from the Payments service.
+    transaction_id:
+        External transaction reference for audit.
+
+    Raises
+    ------
+    OrderNotFoundError
+        If the order does not exist.
+    InvalidStateTransitionError
+        If the order is not in ``PENDIENTE_DE_PAGO`` state.
+    """
+    order = order_repository.get_by_id(db, order_id)
+    if order is None:
+        raise OrderNotFoundError(str(order_id))
+
+    if payment_status == PaymentStatus.SUCCESS:
+        target_status = OrderStatus.CONFIRMADA
+    else:
+        target_status = OrderStatus.PAGO_RECHAZADO
+
+    # Validate state machine transition.
+    validate_transition(OrderStatus(order.status), target_status)
+
+    # Update order status.
+    order = order_repository.update_status(db, order, target_status)
+    logger.info(
+        "Payment resolved: order=%s status=%s tx=%s",
+        order_id, target_status, transaction_id,
+    )
+
+    # ── Post-resolution side effects ──────────────────
+    if payment_status == PaymentStatus.SUCCESS:
+        _on_payment_success(order)
+    else:
+        _on_payment_failed(order)
+
+    return order
+
+
+def _on_payment_success(order: Order) -> None:
+    """Side effects after a successful payment (best effort)."""
+    # Commit the stock reservation.
+    try:
+        inventory_client.commit_stock(order.idempotency_key)
+    except Exception:
+        logger.error(
+            "Stock commit failed for order=%s. Manual intervention required.",
+            order.id,
+        )
+
+    # Clear the user's cart.
+    try:
+        cart_client.delete_cart(str(order.user_id))
+    except Exception:
+        logger.error(
+            "Cart clear failed for user=%s after order=%s.",
+            order.user_id, order.id,
+        )
+
+
+def _on_payment_failed(order: Order) -> None:
+    """Compensation after a failed payment (best effort)."""
+    try:
+        inventory_client.rollback_stock(order.idempotency_key)
+    except Exception:
+        logger.error(
+            "Stock rollback failed for order=%s. Manual intervention required.",
+            order.id,
+        )

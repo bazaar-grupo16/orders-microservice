@@ -2,15 +2,17 @@
 Orders API router.
 
 All endpoints require the ``X-User-Id`` header which is injected by
-NGINX Ingress after JWT validation.
+NGINX Ingress after JWT validation — except the payment webhook which
+is called internally by the Payments service.
 """
 
 import logging
+from uuid import UUID
 
 from fastapi import APIRouter, Header, HTTPException, status
 
 from src.core.dependencies import CurrentUserId, DbSession
-from src.schemas import CreateOrderRequest, OrderCreatedResponse
+from src.schemas import CreateOrderRequest, OrderCreatedResponse, PaymentWebhookRequest
 from src.services import order_service
 
 logger = logging.getLogger(__name__)
@@ -57,3 +59,31 @@ def create_order(
         order_id=order.id,
         status=order.status,
     )
+
+
+@router.post(
+    "/{order_id}/payment-webhook",
+    status_code=status.HTTP_200_OK,
+    summary="Payment webhook — Saga resolution",
+)
+def payment_webhook(
+    order_id: UUID,
+    body: PaymentWebhookRequest,
+    db: DbSession,
+) -> dict:
+    """Callback from the Payments service to resolve the Saga.
+
+    This is an **internal endpoint** — called by the Payments service
+    over the K8s internal network.  No ``X-User-Id`` header is required.
+
+    - ``SUCCESS`` → ``CONFIRMADA`` + commit stock + clear cart.
+    - ``FAILED``  → ``PAGO_RECHAZADO`` + rollback stock (compensation).
+    """
+    order = order_service.resolve_payment(
+        db,
+        order_id=order_id,
+        payment_status=body.status,
+        transaction_id=body.transaction_id,
+    )
+
+    return {"order_id": str(order.id), "status": order.status}
