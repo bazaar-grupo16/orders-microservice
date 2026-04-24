@@ -280,3 +280,43 @@ def list_orders(
         limit=size,
     )
     return list(orders), total
+
+
+def update_order_status(
+    db: Session,
+    *,
+    order_id: uuid.UUID,
+    new_status: str,
+    tracking_code: str | None = None,
+) -> Order:
+    """Update an order's status and optionally its tracking code.
+    
+    This is typically called by a Seller or internal admin.
+    
+    Raises
+    ------
+    OrderNotFoundError
+        If the order does not exist.
+    InvalidStateTransitionError
+        If the transition is not allowed by the state machine.
+    """
+    order = order_repository.get_by_id(db, order_id)
+    if order is None:
+        raise OrderNotFoundError(str(order_id))
+
+    # Validate transition
+    validate_transition(OrderStatus(order.status), OrderStatus(new_status))
+
+    # Apply tracking code if provided
+    if tracking_code is not None:
+        order = order_repository.update_tracking_code(db, order, tracking_code)
+
+    # Apply status update
+    order = order_repository.update_status(db, order, OrderStatus(new_status))
+    
+    logger.info(
+        "Order status updated: order=%s old_status=%s new_status=%s",
+        order.id, order.status, new_status,
+    )
+    
+    return order

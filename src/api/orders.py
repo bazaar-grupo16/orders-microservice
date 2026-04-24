@@ -18,6 +18,7 @@ from src.schemas import (
     OrderListResponse,
     OrderResponse,
     PaymentWebhookRequest,
+    UpdateStatusRequest,
 )
 from src.services import order_service
 
@@ -152,6 +153,36 @@ def get_order(
         db,
         order_id=order_id,
         user_id=user_id,
+    )
+    
+    order_dict = order.__dict__.copy()
+    order_dict["order_id"] = order.id
+    return OrderResponse.model_validate(order_dict)
+
+
+@router.patch(
+    "/{order_id}/status",
+    response_model=OrderResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Update order status (Seller)",
+)
+def update_order_status(
+    order_id: UUID,
+    body: UpdateStatusRequest,
+    db: DbSession,
+    # NOTE: In a real system, NGINX might validate seller roles or we'd check it here.
+    # We are keeping it simple per the plan.
+) -> OrderResponse:
+    """Update the status of an order.
+    
+    This endpoint allows sellers to transition an order through its
+    fulfillment lifecycle (e.g., CONFIRMADA -> EN_PREPARACION).
+    """
+    order = order_service.update_order_status(
+        db,
+        order_id=order_id,
+        new_status=body.status,
+        tracking_code=body.tracking_code,
     )
     
     order_dict = order.__dict__.copy()
