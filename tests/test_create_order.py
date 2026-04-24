@@ -91,8 +91,8 @@ class TestCreateOrderHappyPath:
         respx.get(f"http://cart-service:8000/carts/{user_id}").mock(
             return_value=httpx.Response(200, json=_cart_response(user_id)),
         )
-        respx.post("http://inventory-service:8000/inventory/reserve").mock(
-            return_value=httpx.Response(200, json={"reservation_id": "res-1"}),
+        respx.post(url__regex=r"http://inventory-service:8000/internal/products/.*/stock/reserve").mock(
+            return_value=httpx.Response(200, json={"stock": 9}),
         )
 
         response = _post_order(client, user_id=user_id)
@@ -109,8 +109,8 @@ class TestCreateOrderHappyPath:
         respx.get(f"http://cart-service:8000/carts/{user_id}").mock(
             return_value=httpx.Response(200, json=_cart_response(user_id)),
         )
-        respx.post("http://inventory-service:8000/inventory/reserve").mock(
-            return_value=httpx.Response(200, json={"reservation_id": "res-2"}),
+        respx.post(url__regex=r"http://inventory-service:8000/internal/products/.*/stock/reserve").mock(
+            return_value=httpx.Response(200, json={"stock": 9}),
         )
 
         response = _post_order(client, user_id=user_id)
@@ -132,8 +132,8 @@ class TestIdempotency:
         respx.get(f"http://cart-service:8000/carts/{user_id}").mock(
             return_value=httpx.Response(200, json=_cart_response(user_id)),
         )
-        respx.post("http://inventory-service:8000/inventory/reserve").mock(
-            return_value=httpx.Response(200, json={"reservation_id": "res-3"}),
+        respx.post(url__regex=r"http://inventory-service:8000/internal/products/.*/stock/reserve").mock(
+            return_value=httpx.Response(200, json={"stock": 9}),
         )
 
         first = _post_order(client, user_id=user_id, idempotency_key=key)
@@ -211,7 +211,7 @@ class TestInventoryErrors:
         respx.get(f"http://cart-service:8000/carts/{user_id}").mock(
             return_value=httpx.Response(200, json=_cart_response(user_id)),
         )
-        respx.post("http://inventory-service:8000/inventory/reserve").mock(
+        respx.post(url__regex=r"http://inventory-service:8000/internal/products/.*/stock/reserve").mock(
             return_value=httpx.Response(
                 409, json={"detail": "Not enough stock"},
             ),
@@ -228,7 +228,7 @@ class TestInventoryErrors:
         respx.get(f"http://cart-service:8000/carts/{user_id}").mock(
             return_value=httpx.Response(200, json=_cart_response(user_id)),
         )
-        respx.post("http://inventory-service:8000/inventory/reserve").mock(
+        respx.post(url__regex=r"http://inventory-service:8000/internal/products/.*/stock/reserve").mock(
             side_effect=httpx.ConnectTimeout("Timeout"),
         )
 

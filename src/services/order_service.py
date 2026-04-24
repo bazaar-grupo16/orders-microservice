@@ -117,7 +117,7 @@ def create_order(
             "Order persistence failed — rolling back stock reservation",
         )
         try:
-            inventory_client.rollback_stock(idempotency_key)
+            inventory_client.rollback_stock(reserve_payload)
         except Exception:
             logger.critical(
                 "CRITICAL: Stock rollback failed for key=%s. "
@@ -218,7 +218,8 @@ def _on_payment_success(order: Order) -> None:
 def _on_payment_failed(order: Order) -> None:
     """Compensation after a failed payment (best effort)."""
     try:
-        inventory_client.rollback_stock(order.idempotency_key)
+        payload = [{"product_id": str(i.product_id), "quantity": i.quantity} for i in order.items]
+        inventory_client.rollback_stock(payload)
     except Exception:
         logger.error(
             "Stock rollback failed for order=%s. Manual intervention required.",

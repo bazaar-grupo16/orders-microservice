@@ -72,16 +72,14 @@ class TestPaymentSuccess:
         respx.get(f"http://cart-service:8000/carts/{user_id}").mock(
             return_value=httpx.Response(200, json=_cart_response(user_id)),
         )
-        respx.post("http://inventory-service:8000/inventory/reserve").mock(
-            return_value=httpx.Response(200, json={"reservation_id": "res-1"}),
+        respx.post(url__regex=r"http://inventory-service:8000/internal/products/.*/stock/reserve").mock(
+            return_value=httpx.Response(200, json={"stock": 9}),
         )
 
         order_id = _create_order_via_api(client, user_id)
 
         # Mock for webhook side effects.
-        respx.post("http://inventory-service:8000/inventory/commit").mock(
-            return_value=httpx.Response(200),
-        )
+        # (commit_stock is now a no-op)
         respx.delete(f"http://cart-service:8000/carts/{user_id}").mock(
             return_value=httpx.Response(204),
         )
@@ -101,25 +99,26 @@ class TestPaymentSuccess:
         respx.get(f"http://cart-service:8000/carts/{user_id}").mock(
             return_value=httpx.Response(200, json=_cart_response(user_id)),
         )
-        respx.post("http://inventory-service:8000/inventory/reserve").mock(
-            return_value=httpx.Response(200, json={"reservation_id": "res-2"}),
+        respx.post(url__regex=r"http://inventory-service:8000/internal/products/.*/stock/reserve").mock(
+            return_value=httpx.Response(200, json={"stock": 9}),
         )
 
         order_id = _create_order_via_api(client, user_id)
 
-        commit_route = respx.post("http://inventory-service:8000/inventory/commit").mock(
-            return_value=httpx.Response(200),
-        )
+        # commit_stock is no-op, test is adapted to just check it passes
+        # we can remove commit_route completely
         respx.delete(f"http://cart-service:8000/carts/{user_id}").mock(
             return_value=httpx.Response(204),
         )
 
-        client.post(
+        response = client.post(
             f"/orders/{order_id}/payment-webhook",
             json={"status": "SUCCESS", "transaction_id": "tx-456"},
         )
 
-        assert commit_route.called
+        # The test originally checked if commit_route.called
+        # Since it's a no-op now, we can just assert response status 200
+        assert response.status_code == 200
 
     @respx.mock
     def test_calls_cart_delete(self, client: TestClient) -> None:
@@ -128,15 +127,13 @@ class TestPaymentSuccess:
         respx.get(f"http://cart-service:8000/carts/{user_id}").mock(
             return_value=httpx.Response(200, json=_cart_response(user_id)),
         )
-        respx.post("http://inventory-service:8000/inventory/reserve").mock(
-            return_value=httpx.Response(200, json={"reservation_id": "res-3"}),
+        respx.post(url__regex=r"http://inventory-service:8000/internal/products/.*/stock/reserve").mock(
+            return_value=httpx.Response(200, json={"stock": 9}),
         )
 
         order_id = _create_order_via_api(client, user_id)
 
-        respx.post("http://inventory-service:8000/inventory/commit").mock(
-            return_value=httpx.Response(200),
-        )
+        # commit is no-op
         delete_route = respx.delete(f"http://cart-service:8000/carts/{user_id}").mock(
             return_value=httpx.Response(204),
         )
@@ -159,13 +156,13 @@ class TestPaymentFailed:
         respx.get(f"http://cart-service:8000/carts/{user_id}").mock(
             return_value=httpx.Response(200, json=_cart_response(user_id)),
         )
-        respx.post("http://inventory-service:8000/inventory/reserve").mock(
-            return_value=httpx.Response(200, json={"reservation_id": "res-4"}),
+        respx.post(url__regex=r"http://inventory-service:8000/internal/products/.*/stock/reserve").mock(
+            return_value=httpx.Response(200, json={"stock": 9}),
         )
 
         order_id = _create_order_via_api(client, user_id)
 
-        respx.post("http://inventory-service:8000/inventory/rollback").mock(
+        respx.post(url__regex=r"http://inventory-service:8000/internal/products/.*/stock/release").mock(
             return_value=httpx.Response(200),
         )
 
@@ -184,13 +181,13 @@ class TestPaymentFailed:
         respx.get(f"http://cart-service:8000/carts/{user_id}").mock(
             return_value=httpx.Response(200, json=_cart_response(user_id)),
         )
-        respx.post("http://inventory-service:8000/inventory/reserve").mock(
-            return_value=httpx.Response(200, json={"reservation_id": "res-5"}),
+        respx.post(url__regex=r"http://inventory-service:8000/internal/products/.*/stock/reserve").mock(
+            return_value=httpx.Response(200, json={"stock": 9}),
         )
 
         order_id = _create_order_via_api(client, user_id)
 
-        rollback_route = respx.post("http://inventory-service:8000/inventory/rollback").mock(
+        rollback_route = respx.post(url__regex=r"http://inventory-service:8000/internal/products/.*/stock/release").mock(
             return_value=httpx.Response(200),
         )
 
@@ -222,15 +219,13 @@ class TestWebhookErrors:
         respx.get(f"http://cart-service:8000/carts/{user_id}").mock(
             return_value=httpx.Response(200, json=_cart_response(user_id)),
         )
-        respx.post("http://inventory-service:8000/inventory/reserve").mock(
-            return_value=httpx.Response(200, json={"reservation_id": "res-6"}),
+        respx.post(url__regex=r"http://inventory-service:8000/internal/products/.*/stock/reserve").mock(
+            return_value=httpx.Response(200, json={"stock": 9}),
         )
 
         order_id = _create_order_via_api(client, user_id)
 
-        respx.post("http://inventory-service:8000/inventory/commit").mock(
-            return_value=httpx.Response(200),
-        )
+        # commit is no-op
         respx.delete(f"http://cart-service:8000/carts/{user_id}").mock(
             return_value=httpx.Response(204),
         )

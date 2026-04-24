@@ -22,18 +22,16 @@ def _base_url() -> str:
     return get_settings().INVENTORY_SERVICE_URL
 
 
-def reserve_stock(items: list[dict[str, Any]]) -> dict[str, Any]:
+def reserve_stock(items: list[dict[str, Any]]) -> None:
     """Request a stock reservation for the given items.
+    
+    If any reservation fails, it rolls back
+    the previously successful reservations in this batch.
 
     Parameters
     ----------
     items:
         List of dicts with ``product_id`` and ``quantity``.
-
-    Returns
-    -------
-    dict
-        The reservation response from Inventory (includes ``reservation_id``).
 
     Raises
     ------
@@ -42,83 +40,79 @@ def reserve_stock(items: list[dict[str, Any]]) -> dict[str, Any]:
     ExternalServiceError
         If the service is unreachable or returns an unexpected error.
     """
-    url = f"{_base_url()}/inventory/reserve"
-    payload = {"items": items}
+    reserved_items = []
+    
+    for item in items:
+        product_id = item["product_id"]
+        quantity = item["quantity"]
+        url = f"{_base_url()}/internal/products/{product_id}/stock/reserve"
+        
+        try:
+            response = httpx.post(url, json={"quantity": quantity}, timeout=_TIMEOUT)
+        except httpx.HTTPError as exc:
+            logger.error("Inventory service unreachable on reserve: %s", exc)
+            rollback_stock(reserved_items)
+            raise ExternalServiceError("inventory-service", "Service unreachable")
 
-    try:
-        response = httpx.post(url, json=payload, timeout=_TIMEOUT)
-    except httpx.HTTPError as exc:
-        logger.error("Inventory service unreachable on reserve: %s", exc)
-        raise ExternalServiceError("inventory-service", "Service unreachable")
+        if response.status_code == 409:
+            rollback_stock(reserved_items)
+            # Default to a generic detail if none provided
+            try:
+                detail = response.json().get("detail", "Insufficient stock")
+            except Exception:
+                detail = "Insufficient stock"
+            raise InsufficientStockError(detail)
 
-    if response.status_code == 409:
-        detail = response.json().get("detail", "Insufficient stock")
-        raise InsufficientStockError(detail)
+        if response.status_code not in (200, 201):
+            rollback_stock(reserved_items)
+            logger.error(
+                "Inventory reserve error: status=%d body=%s",
+                response.status_code, response.text,
+            )
+            raise ExternalServiceError(
+                "inventory-service",
+                f"Reserve failed: status {response.status_code}",
+            )
 
-    if response.status_code not in (200, 201):
-        logger.error(
-            "Inventory reserve error: status=%d body=%s",
-            response.status_code, response.text,
-        )
-        raise ExternalServiceError(
-            "inventory-service",
-            f"Reserve failed: status {response.status_code}",
-        )
-
-    return response.json()
+        reserved_items.append({"product_id": product_id, "quantity": quantity})
 
 
-def commit_stock(reservation_id: str) -> None:
+def commit_stock(*args, **kwargs) -> None:
     """Convert a reservation into a definitive stock deduction.
 
+    This is a no-op because the Inventory API deducts stock
+    atomically during the reserve phase.
+    """
+    pass
+
+
+def rollback_stock(items: list[dict[str, Any]]) -> None:
+    """Release previously reserved stock back to availability.
+
+    Parameters
+    ----------
+    items:
+        List of dicts with ``product_id`` and ``quantity``.
+        
     Raises
     ------
     ExternalServiceError
         If the service is unreachable or returns an error.
     """
-    url = f"{_base_url()}/inventory/commit"
-    try:
-        response = httpx.post(
-            url, json={"reservation_id": reservation_id}, timeout=_TIMEOUT,
-        )
-    except httpx.HTTPError as exc:
-        logger.error("Inventory service unreachable on commit: %s", exc)
-        raise ExternalServiceError("inventory-service", "Service unreachable")
+    for item in items:
+        product_id = item["product_id"]
+        quantity = item["quantity"]
+        url = f"{_base_url()}/internal/products/{product_id}/stock/release"
+        try:
+            response = httpx.post(
+                url, json={"quantity": quantity}, timeout=_TIMEOUT,
+            )
+        except httpx.HTTPError as exc:
+            logger.error("Inventory service unreachable on rollback for %s: %s", product_id, exc)
+            continue
 
-    if response.status_code not in (200, 204):
-        logger.error(
-            "Inventory commit error: status=%d body=%s",
-            response.status_code, response.text,
-        )
-        raise ExternalServiceError(
-            "inventory-service",
-            f"Commit failed: status {response.status_code}",
-        )
-
-
-def rollback_stock(reservation_id: str) -> None:
-    """Release a previously reserved stock back to availability.
-
-    Raises
-    ------
-    ExternalServiceError
-        If the service is unreachable or returns an error.
-    """
-    url = f"{_base_url()}/inventory/rollback"
-    try:
-        response = httpx.post(
-            url, json={"reservation_id": reservation_id}, timeout=_TIMEOUT,
-        )
-    except httpx.HTTPError as exc:
-        logger.error("Inventory service unreachable on rollback: %s", exc)
-        raise ExternalServiceError("inventory-service", "Service unreachable")
-
-    if response.status_code not in (200, 204):
-        logger.error(
-            "Inventory rollback error: status=%d body=%s",
-            response.status_code, response.text,
-        )
-        raise ExternalServiceError(
-            "inventory-service",
-            f"Rollback failed: status {response.status_code}",
-        )
+        if response.status_code not in (200, 204):
+            logger.error(
+                "Inventory rollback error for %s: status=%d body=%s",
+                product_id, response.status_code, response.text,
+            )
