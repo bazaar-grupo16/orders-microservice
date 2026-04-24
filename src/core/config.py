@@ -14,7 +14,7 @@ class Settings(BaseSettings):
     """Centralised configuration for the microservice."""
 
     # ── Application ──────────────────────────────────
-    APP_NAME: str = "template-service"
+    APP_NAME: str = "orders-service"
     LOG_LEVEL: str = "info"
 
     # ── Database ─────────────────────────────────────
@@ -23,6 +23,10 @@ class Settings(BaseSettings):
     DB_USER: str
     DB_PASSWORD: str
     DB_NAME: str
+
+    # ── External Services (internal K8s URLs) ────────
+    CART_SERVICE_URL: str
+    INVENTORY_SERVICE_URL: str
 
     # ── Pydantic-settings config ─────────────────────
     model_config = SettingsConfigDict(

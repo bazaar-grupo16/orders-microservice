@@ -180,4 +180,6 @@ $RECYCLE.BIN/
 *.bak
 *.orig
 *.patch
+.agents/
+.plan.md
 node_modules/
