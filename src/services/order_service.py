@@ -15,6 +15,7 @@ from src.clients import cart_client, inventory_client
 from src.exceptions import (
     InsufficientStockError,
     OrderNotFoundError,
+    OrderAccessDeniedError,
 )
 from src.models.order import Order
 from src.models.order_status import OrderStatus
@@ -223,3 +224,59 @@ def _on_payment_failed(order: Order) -> None:
             "Stock rollback failed for order=%s. Manual intervention required.",
             order.id,
         )
+
+
+def get_order(
+    db: Session,
+    *,
+    order_id: uuid.UUID,
+    user_id: uuid.UUID,
+) -> Order:
+    """Retrieve a single order, enforcing ownership.
+
+    Raises
+    ------
+    OrderNotFoundError
+        If the order does not exist.
+    OrderAccessDeniedError
+        If the order belongs to another user.
+    """
+    order = order_repository.get_by_id(db, order_id)
+    if order is None:
+        raise OrderNotFoundError(str(order_id))
+    if order.user_id != user_id:
+        raise OrderAccessDeniedError()
+    return order
+
+
+def list_orders(
+    db: Session,
+    *,
+    user_id: uuid.UUID,
+    status_filter: str | None = None,
+    page: int = 1,
+    size: int = 20,
+) -> tuple[list[Order], int]:
+    """Return a paginated list of orders for the authenticated user.
+
+    Parameters
+    ----------
+    page:
+        1-based page number.
+    size:
+        Number of orders per page.
+
+    Returns
+    -------
+    tuple[list[Order], int]
+        The page of orders and the total count.
+    """
+    offset = (page - 1) * size
+    orders, total = order_repository.list_by_user(
+        db,
+        user_id,
+        status_filter=status_filter,
+        offset=offset,
+        limit=size,
+    )
+    return list(orders), total

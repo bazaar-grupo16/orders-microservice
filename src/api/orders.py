@@ -12,7 +12,13 @@ from uuid import UUID
 from fastapi import APIRouter, Header, HTTPException, status
 
 from src.core.dependencies import CurrentUserId, DbSession
-from src.schemas import CreateOrderRequest, OrderCreatedResponse, PaymentWebhookRequest
+from src.schemas import (
+    CreateOrderRequest,
+    OrderCreatedResponse,
+    OrderListResponse,
+    OrderResponse,
+    PaymentWebhookRequest,
+)
 from src.services import order_service
 
 logger = logging.getLogger(__name__)
@@ -87,3 +93,67 @@ def payment_webhook(
     )
 
     return {"order_id": str(order.id), "status": order.status}
+
+
+@router.get(
+    "",
+    response_model=OrderListResponse,
+    status_code=status.HTTP_200_OK,
+    summary="List orders for the current user",
+)
+def list_orders(
+    db: DbSession,
+    user_id: CurrentUserId,
+    order_status: str | None = None,
+    page: int = 1,
+    size: int = 20,
+) -> OrderListResponse:
+    """Retrieve a paginated list of orders belonging to the user."""
+    orders, total = order_service.list_orders(
+        db,
+        user_id=user_id,
+        status_filter=order_status,
+        page=page,
+        size=size,
+    )
+
+    # Convert SQLAlchemy Order models to OrderResponse schemas
+    # Note: Pydantic from_attributes handles the conversion, but we need to map id -> order_id
+    order_responses = []
+    for order in orders:
+        order_dict = order.__dict__.copy()
+        order_dict["order_id"] = order.id
+        order_responses.append(OrderResponse.model_validate(order_dict))
+
+    return OrderListResponse(
+        orders=order_responses,
+        total=total,
+        page=page,
+        size=size,
+    )
+
+
+@router.get(
+    "/{order_id}",
+    response_model=OrderResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Get a specific order",
+)
+def get_order(
+    order_id: UUID,
+    db: DbSession,
+    user_id: CurrentUserId,
+) -> OrderResponse:
+    """Retrieve a single order by ID.
+    
+    The order must belong to the authenticated user.
+    """
+    order = order_service.get_order(
+        db,
+        order_id=order_id,
+        user_id=user_id,
+    )
+    
+    order_dict = order.__dict__.copy()
+    order_dict["order_id"] = order.id
+    return OrderResponse.model_validate(order_dict)

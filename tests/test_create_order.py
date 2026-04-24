@@ -8,7 +8,6 @@ hitting the real PostgreSQL database.
 import uuid
 
 import httpx
-import pytest
 import respx
 from fastapi.testclient import TestClient
 
