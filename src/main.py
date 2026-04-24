@@ -15,6 +15,7 @@ from fastapi import FastAPI
 
 from src.api.error_handlers import register_error_handlers
 from src.api.health import router as health_router
+from src.api.orders import router as orders_router
 from src.core.config import get_settings
 from src.core.database import Base, engine, wait_for_db
 from src.core.logging import setup_logging
@@ -50,3 +51,4 @@ register_error_handlers(app)
 
 # ── Routers ──────────────────────────────────────────
 app.include_router(health_router)
+app.include_router(orders_router)
