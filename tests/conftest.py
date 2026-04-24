@@ -6,13 +6,14 @@ Tests run against a **real PostgreSQL** database provided by
 same environment variables the application uses in production
 (DB_HOST, DB_PORT, DB_USER, DB_PASSWORD, DB_NAME).
 
-**No mocking is used.**
+**No mocking of the database is used.**
 """
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy.orm import Session
 
-from src.core.database import Base, engine
+from src.core.database import Base, SessionLocal, engine
 from src.main import app
 
 
@@ -22,6 +23,21 @@ def _setup_database():
     Base.metadata.create_all(bind=engine)
     yield
     Base.metadata.drop_all(bind=engine)
+
+
+@pytest.fixture()
+def db_session() -> Session:
+    """Provide a transactional database session that rolls back after each test.
+
+    This ensures test isolation: every test starts with a clean state
+    without needing to truncate tables manually.
+    """
+    session = SessionLocal()
+    try:
+        yield session
+    finally:
+        session.rollback()
+        session.close()
 
 
 @pytest.fixture()
