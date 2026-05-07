@@ -426,6 +426,28 @@
           "status": {
             "type": "string",
             "title": "Status"
+          },
+          "preference_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Preference Id"
+          },
+          "init_point": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Init Point"
           }
         },
         "type": "object",
@@ -434,7 +456,7 @@
           "status"
         ],
         "title": "OrderCreatedResponse",
-        "description": "Minimal response for ``POST /orders`` \u2014 201 Created."
+        "description": "Response for ``POST /orders`` \u2014 201 Created.\n\nIncludes the MercadoPago ``init_point`` URL that the frontend must\nuse to redirect the user to the payment screen."
       },
       "OrderItemResponse": {
         "properties": {
@@ -539,6 +561,28 @@
               }
             ],
             "title": "Tracking Code"
+          },
+          "preference_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Preference Id"
+          },
+          "init_point": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Init Point"
           },
           "created_at": {
             "type": "string",
