@@ -17,6 +17,19 @@ on:
   pull_request:
     branches: [main]
 
+  workflow_dispatch:
+  inputs:
+    run_deploy:
+      description: "Run deploy to Kubernetes"
+      required: false
+      type: boolean
+      default: true
+    run_image_push:
+      description: "Run push to Docker image"
+      required: false
+      type: boolean
+      default: true
+
 permissions:
   contents: read
   packages: write
@@ -74,7 +87,8 @@ jobs:
       name: Build & Push
       needs: [lint, test]
       runs-on: ubuntu-latest
-      if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+      if: github.ref == 'refs/heads/main' && github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.image_tag)
+    
   
       steps:
         - uses: actions/checkout@v4
@@ -95,15 +109,15 @@ jobs:
               ${{ env.IMAGE_NAME }}:${{ github.sha }}
               ${{ env.IMAGE_NAME }}:latest
 
-    # ── 4. Deploy to Kubernetes (optional) ─────────────
-    # Uncomment the job below to enable automatic deployment
-    # to a DigitalOcean Kubernetes cluster.
+  # ── 4. Deploy to Kubernetes (optional) ─────────────
+  # Uncomment the job below to enable automatic deployment
+  # to a DigitalOcean Kubernetes cluster.
 
     deploy:
       name: Deploy to K8s
       needs: build
       runs-on: ubuntu-latest
-      if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+      if: github.ref == 'refs/heads/main' && github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.run_deploy)
     
       steps:
         - uses: actions/checkout@v4
