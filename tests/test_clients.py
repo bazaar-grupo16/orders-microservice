@@ -1,5 +1,5 @@
 """
-Tests for the Cart and Inventory HTTP clients.
+Tests for the Cart, Inventory, and Payments HTTP clients.
 
 Uses ``respx`` to mock outgoing HTTP requests — no real services needed.
 The database is NOT involved in these tests.
@@ -11,8 +11,8 @@ import httpx
 import pytest
 import respx
 
-from src.clients import cart_client, inventory_client
-from src.exceptions import CartEmptyError, ExternalServiceError, InsufficientStockError
+from src.clients import cart_client, inventory_client, payments_client
+from src.exceptions import CartEmptyError, ExternalServiceError, InsufficientStockError, PaymentsServiceError
 
 
 # ── Cart Client ───────────────────────────────────────────────
@@ -255,3 +255,120 @@ class TestRollbackStock:
 
         # Should not raise exception
         inventory_client.rollback_stock([{"product_id": p1, "quantity": 1}])
+
+
+# ── Payments Client ────────────────────────────────────────────────
+
+
+class TestPaymentsClient:
+    """Tests for ``payments_client.create_preference``."""
+
+    _ITEMS = [
+        {"title": "Laptop Gamer", "quantity": 1, "unit_price": 1500.00},
+        {"title": "Mouse Inalámbrico", "quantity": 2, "unit_price": 25.50},
+    ]
+    _PREFERENCE_RESPONSE = {
+        "preference_id": "mp-pref-abc123",
+        "init_point": "https://www.mercadopago.com.ar/checkout/v1/redirect?pref_id=mp-pref-abc123",
+    }
+
+    @respx.mock
+    def test_returns_preference_on_201(self) -> None:
+        """Happy path: Payments returns 201 with preference_id and init_point."""
+        order_id = str(uuid.uuid4())
+        idem_key = str(uuid.uuid4())
+
+        route = respx.post("http://payments-service:8000/payments/preferences").mock(
+            return_value=httpx.Response(201, json=self._PREFERENCE_RESPONSE),
+        )
+
+        result = payments_client.create_preference(
+            order_id=order_id,
+            items=self._ITEMS,
+            idempotency_key=idem_key,
+        )
+
+        assert route.called
+        assert result["preference_id"] == "mp-pref-abc123"
+        assert result["init_point"].startswith("https://")
+
+    @respx.mock
+    def test_sends_correct_idempotency_header(self) -> None:
+        """The Idempotency-Key header must be forwarded verbatim."""
+        order_id = str(uuid.uuid4())
+        idem_key = str(uuid.uuid4())
+
+        route = respx.post("http://payments-service:8000/payments/preferences").mock(
+            return_value=httpx.Response(201, json=self._PREFERENCE_RESPONSE),
+        )
+
+        payments_client.create_preference(
+            order_id=order_id,
+            items=self._ITEMS,
+            idempotency_key=idem_key,
+        )
+
+        assert route.calls.last.request.headers["Idempotency-Key"] == idem_key
+
+    @respx.mock
+    def test_raises_payments_error_on_400(self) -> None:
+        """A 400 from Payments must raise PaymentsServiceError."""
+        order_id = str(uuid.uuid4())
+        respx.post("http://payments-service:8000/payments/preferences").mock(
+            return_value=httpx.Response(400, json={"detail": "Bad request"}),
+        )
+
+        with pytest.raises(PaymentsServiceError) as exc_info:
+            payments_client.create_preference(
+                order_id=order_id,
+                items=self._ITEMS,
+                idempotency_key=str(uuid.uuid4()),
+            )
+        assert "Bad request" in exc_info.value.detail
+
+    @respx.mock
+    def test_raises_payments_error_on_422(self) -> None:
+        """A 422 (validation error from Payments) must raise PaymentsServiceError."""
+        order_id = str(uuid.uuid4())
+        respx.post("http://payments-service:8000/payments/preferences").mock(
+            return_value=httpx.Response(422, json={"detail": "Unprocessable entity"}),
+        )
+
+        with pytest.raises(PaymentsServiceError):
+            payments_client.create_preference(
+                order_id=order_id,
+                items=self._ITEMS,
+                idempotency_key=str(uuid.uuid4()),
+            )
+
+    @respx.mock
+    def test_raises_payments_error_on_502(self) -> None:
+        """A 502 (MP gateway error) must raise PaymentsServiceError."""
+        order_id = str(uuid.uuid4())
+        respx.post("http://payments-service:8000/payments/preferences").mock(
+            return_value=httpx.Response(502, json={"detail": "Bad gateway"}),
+        )
+
+        with pytest.raises(PaymentsServiceError) as exc_info:
+            payments_client.create_preference(
+                order_id=order_id,
+                items=self._ITEMS,
+                idempotency_key=str(uuid.uuid4()),
+            )
+        assert "Bad gateway" in exc_info.value.detail
+
+    @respx.mock
+    def test_raises_payments_error_on_timeout(self) -> None:
+        """A network timeout must raise PaymentsServiceError (not propagate httpx exception)."""
+        order_id = str(uuid.uuid4())
+        respx.post("http://payments-service:8000/payments/preferences").mock(
+            side_effect=httpx.ConnectTimeout("Timeout"),
+        )
+
+        with pytest.raises(PaymentsServiceError) as exc_info:
+            payments_client.create_preference(
+                order_id=order_id,
+                items=self._ITEMS,
+                idempotency_key=str(uuid.uuid4()),
+            )
+        assert "unreachable" in exc_info.value.detail.lower()

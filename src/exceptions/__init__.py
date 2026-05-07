@@ -44,3 +44,17 @@ class ExternalServiceError(Exception):
         self.service = service
         self.detail = detail
         super().__init__(f"{service}: {detail}")
+
+
+class PaymentsServiceError(Exception):
+    """Raised when the Payments microservice returns an error or is unreachable.
+
+    Distinct from :class:`ExternalServiceError` because the Payments failure
+    triggers a full Saga compensation (stock rollback + order deletion) and
+    maps to a ``502 Bad Gateway`` response to the frontend.
+    """
+
+    def __init__(self, detail: str = "Payments service error") -> None:
+        self.detail = detail
+        super().__init__(detail)
+
