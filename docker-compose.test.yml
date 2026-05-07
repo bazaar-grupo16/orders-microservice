@@ -30,6 +30,9 @@ services:
       DB_USER: test_user
       DB_PASSWORD: test_password
       DB_NAME: test_db
+      CART_SERVICE_URL: http://cart-service:8000
+      INVENTORY_SERVICE_URL: http://inventory-service:8000
+      PAYMENTS_SERVICE_URL: http://payments-service:8000
     depends_on:
       db:
         condition: service_healthy

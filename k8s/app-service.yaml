@@ -1,16 +1,16 @@
 # ──────────────────────────────────────────────────────────────
-# Kubernetes Service — Bazaar Microservice
+# Kubernetes Service — Orders Microservice
 # ──────────────────────────────────────────────────────────────
 apiVersion: v1
 kind: Service
 metadata:
-  name: template-service
+  name: orders-service
   labels:
-    app: template-service
+    app: orders-service
 spec:
   type: ClusterIP
   selector:
-    app: template-service
+    app: orders-service
   ports:
     - protocol: TCP
       port: 80

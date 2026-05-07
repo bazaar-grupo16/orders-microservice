@@ -1,0 +1,41 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: orders-ingress
+  namespace: bazaar-dev
+  annotations:
+    kubernetes.io/ingress.class: "nginx"
+    nginx.ingress.kubernetes.io/use-regex: "true"
+    nginx.ingress.kubernetes.io/enable-cors: "true"
+    nginx.ingress.kubernetes.io/cors-allow-origin: "*"
+    nginx.ingress.kubernetes.io/cors-allow-methods: "GET, POST, PUT, PATCH"
+    nginx.ingress.kubernetes.io/cors-allow-headers: "Content-Type, Authorization"
+    nginx.ingress.kubernetes.io/auth-url: "http://auth-service.bazaar-dev.svc.cluster.local/validate"
+    nginx.ingress.kubernetes.io/auth-method: "GET"
+    nginx.ingress.kubernetes.io/auth-response-headers: "X-User-ID"
+spec:
+  rules:
+    - http:
+        paths:
+          - path: /orders/?$
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: orders-service
+                port:
+                  number: 80
+          - path: /orders/[^/]+/?$
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: orders-service
+                port:
+                  number: 80
+          - path: /orders/[^/]+/status/?$
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: orders-service
+                port:
+                  number: 80
+
