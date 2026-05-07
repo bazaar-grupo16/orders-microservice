@@ -65,6 +65,8 @@ def create_order(
     return OrderCreatedResponse(
         order_id=order.id,
         status=order.status,
+        preference_id=order.preference_id,
+        init_point=order.init_point,
     )
 
 

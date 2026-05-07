@@ -48,6 +48,14 @@ class Order(Base):
         String(100), nullable=True, default=None,
     )
 
+    # ── Payment preference (populated after Payments service call) ───
+    preference_id: Mapped[str | None] = mapped_column(
+        String(255), nullable=True, default=None,
+    )
+    init_point: Mapped[str | None] = mapped_column(
+        String(2048), nullable=True, default=None,
+    )
+
     # ── Timestamps ────────────────────────────────────
     created_at: Mapped[str] = mapped_column(
         DateTime(timezone=True), default=utc_now, nullable=False,

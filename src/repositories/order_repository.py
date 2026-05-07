@@ -104,3 +104,35 @@ def update_tracking_code(db: Session, order: Order, tracking_code: str) -> Order
     db.commit()
     db.refresh(order)
     return order
+
+
+def update_payment_preference(
+    db: Session,
+    order: Order,
+    *,
+    preference_id: str,
+    init_point: str,
+) -> Order:
+    """Persist the MercadoPago preference data on the order.
+
+    Called immediately after a successful ``POST /payments/preferences``
+    response so that the ``init_point`` is stored and can be returned
+    on subsequent idempotent requests without calling Payments again.
+    """
+    order.preference_id = preference_id
+    order.init_point = init_point
+    db.commit()
+    db.refresh(order)
+    return order
+
+
+def delete_order(db: Session, order: Order) -> None:
+    """Hard-delete an order from the database.
+
+    Used exclusively for Saga compensation: if the Payments service call
+    fails after the order has already been persisted, this function removes
+    it so the client can retry the full flow using the same
+    ``Idempotency-Key``.
+    """
+    db.delete(order)
+    db.commit()

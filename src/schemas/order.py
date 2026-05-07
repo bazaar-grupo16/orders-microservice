@@ -52,16 +52,24 @@ class OrderResponse(BaseModel):
     shipping_address: dict
     total_amount: float
     tracking_code: str | None = None
+    preference_id: str | None = None
+    init_point: str | None = None
     created_at: datetime
     updated_at: datetime
     items: list[OrderItemResponse] = []
 
 
 class OrderCreatedResponse(BaseModel):
-    """Minimal response for ``POST /orders`` — 201 Created."""
+    """Response for ``POST /orders`` — 201 Created.
+
+    Includes the MercadoPago ``init_point`` URL that the frontend must
+    use to redirect the user to the payment screen.
+    """
 
     order_id: UUID
     status: str
+    preference_id: str | None = None
+    init_point: str | None = None
 
 
 class OrderListResponse(BaseModel):

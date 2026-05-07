@@ -2,8 +2,8 @@
 Order service — Saga orchestrator.
 
 Contains the business logic for the checkout flow.  Coordinates
-between the Cart, Inventory, and local persistence to guarantee
-consistency through the Saga pattern.
+between the Cart, Inventory, Payments, and local persistence to
+guarantee consistency through the Saga pattern.
 """
 
 import logging
@@ -11,11 +11,12 @@ import uuid
 
 from sqlalchemy.orm import Session
 
-from src.clients import cart_client, inventory_client
+from src.clients import cart_client, inventory_client, payments_client
 from src.exceptions import (
     InsufficientStockError,
     OrderNotFoundError,
     OrderAccessDeniedError,
+    PaymentsServiceError,
 )
 from src.models.order import Order
 from src.models.order_status import OrderStatus
@@ -33,21 +34,23 @@ def create_order(
     idempotency_key: str,
     shipping_address: dict,
 ) -> Order:
-    """Execute the Saga to create a new order.
+    """Execute the Saga to create a new order and obtain a payment link.
 
     Flow (Happy Path):
-        1. Check idempotency → return existing order if duplicate.
+        1. Check idempotency → return existing order (with stored init_point) if duplicate.
         2. Fetch cart items from Cart service.
         3. Reserve stock in Inventory service.
         4. Persist order with status ``PENDIENTE_DE_PAGO``.
-        5. Return the created order.
+        5. Call Payments service to create MP preference and get ``init_point``.
+        6. Persist ``preference_id`` and ``init_point`` on the order.
+        7. Return the created order (with init_point populated).
 
     Compensation:
-        If persistence fails after stock was reserved, rollback the
-        reservation in Inventory.
-
-    Note: Cart clearing and stock commit happen later in the
-    payment webhook (Paso 6 of the Saga).
+        - Step 3 fails: no rollback needed (nothing was reserved yet).
+        - Step 4 (DB) fails after stock reserved: rollback stock reservation.
+        - Step 5 (Payments) fails after order persisted: rollback stock +
+          delete order from DB so the client can retry with the same
+          Idempotency-Key.
 
     Parameters
     ----------
@@ -63,13 +66,15 @@ def create_order(
     Returns
     -------
     Order
-        The newly created (or previously existing) order.
+        The newly created (or previously existing) order, always
+        with ``init_point`` and ``preference_id`` populated.
     """
     # ── Step 1: Idempotency check ─────────────────────
     existing = order_repository.get_by_idempotency_key(db, idempotency_key)
     if existing is not None:
         logger.info(
-            "Idempotent hit: key=%s → order=%s", idempotency_key, existing.id,
+            "Idempotent hit: key=%s → order=%s init_point_stored=%s",
+            idempotency_key, existing.id, bool(existing.init_point),
         )
         return existing
 
@@ -126,8 +131,63 @@ def create_order(
             )
         raise
 
-    logger.info("Order created: id=%s status=%s", order.id, order.status)
+    # ── Step 5: Create payment preference ─────────────
+    # Build items in the shape expected by the Payments service
+    # (PreferenceRequest.items: title, quantity, unit_price).
+    preference_items = [
+        {
+            "title": item["product_name"],
+            "quantity": item["quantity"],
+            "unit_price": item["unit_price"],
+        }
+        for item in cart_items
+    ]
+
+    try:
+        preference = payments_client.create_preference(
+            order_id=str(order.id),
+            items=preference_items,
+            idempotency_key=idempotency_key,
+        )
+    except PaymentsServiceError:
+        # Full compensation: Payments failed — undo stock and remove the order
+        # so the client can safely retry with the same Idempotency-Key.
+        logger.error(
+            "Payments service failed — compensating: rollback stock + delete order=%s",
+            order.id,
+        )
+        try:
+            inventory_client.rollback_stock(reserve_payload)
+        except Exception:
+            logger.critical(
+                "CRITICAL: Stock rollback failed after Payments error for key=%s. "
+                "Manual intervention required.",
+                idempotency_key,
+            )
+        try:
+            order_repository.delete_order(db, order)
+        except Exception:
+            logger.critical(
+                "CRITICAL: Order deletion failed after Payments error for key=%s order=%s. "
+                "Manual intervention required.",
+                idempotency_key, order.id,
+            )
+        raise
+
+    # ── Step 6: Persist preference data on the order ──
+    order = order_repository.update_payment_preference(
+        db,
+        order,
+        preference_id=preference["preference_id"],
+        init_point=preference["init_point"],
+    )
+
+    logger.info(
+        "Order created: id=%s status=%s preference_id=%s",
+        order.id, order.status, order.preference_id,
+    )
     return order
+
 
 
 def resolve_payment(

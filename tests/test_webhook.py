@@ -44,8 +44,17 @@ def _cart_response(user_id: str) -> dict:
     }
 
 
+_PREFERENCE_RESPONSE = {
+    "preference_id": "mp-pref-abc123",
+    "init_point": "https://www.mercadopago.com.ar/checkout/v1/redirect?pref_id=mp-pref-abc123",
+}
+
+
 def _create_order_via_api(client: TestClient, user_id: str) -> str:
-    """Create an order and return its ``order_id``."""
+    """Create an order (mocking Cart, Inventory and Payments) and return its ``order_id``."""
+    respx.post("http://payments-service:8000/payments/preferences").mock(
+        return_value=httpx.Response(201, json=_PREFERENCE_RESPONSE),
+    )
     response = client.post(
         "/orders",
         json={"shipping_address": _VALID_ADDRESS},

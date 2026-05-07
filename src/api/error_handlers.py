@@ -16,6 +16,7 @@ from src.exceptions import (
     InsufficientStockError,
     OrderAccessDeniedError,
     OrderNotFoundError,
+    PaymentsServiceError,
 )
 from src.models.state_machine import InvalidStateTransitionError
 
@@ -80,3 +81,14 @@ def register_error_handlers(app: FastAPI) -> None:
             exc.service, exc.detail,
         )
         return _problem(502, "External Service Error", exc.detail)
+
+    @app.exception_handler(PaymentsServiceError)
+    async def _payments_service(
+        _request: Request, exc: PaymentsServiceError,
+    ) -> JSONResponse:
+        logger.error("Payments service failure: detail=%s", exc.detail)
+        return _problem(
+            502,
+            "Payment Gateway Error",
+            "The payment service is temporarily unavailable. Please try again.",
+        )
