@@ -18,17 +18,17 @@ on:
     branches: [main]
 
   workflow_dispatch:
-  inputs:
-    run_deploy:
-      description: "Run deploy to Kubernetes"
-      required: false
-      type: boolean
-      default: true
-    run_image_push:
-      description: "Run push to Docker image"
-      required: false
-      type: boolean
-      default: true
+    inputs:
+      run_deploy:
+        description: "Run deploy to Kubernetes"
+        required: false
+        type: boolean
+        default: true
+      run_image_push:
+        description: "Run push to Docker image"
+        required: false
+        type: boolean
+        default: true
 
 permissions:
   contents: read
@@ -65,6 +65,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
       - name: Install Bandit (SAST)
         run: pip install bandit
 
@@ -87,7 +92,7 @@ jobs:
     name: Build & Push
     needs: [lint, test]
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.image_tag)
+    if: (github.ref == 'refs/heads/main' && github.event_name == 'push') || (github.event_name == 'workflow_dispatch' && inputs.run_image_push)
   
 
     steps:
