@@ -74,7 +74,7 @@ def get_cart(user_id: str) -> list[dict[str, Any]]:
     """
     url = f"{_base_url()}/carts/{user_id}"
     try:
-        response = httpx.get(url, timeout=_TIMEOUT)
+        response = httpx.get(url, timeout=_TIMEOUT, headers={"X-User-ID": user_id})
     except httpx.HTTPError as exc:
         logger.error("Cart service unreachable: %s", exc)
         raise ExternalServiceError("cart-service", "Service unreachable")
@@ -110,7 +110,7 @@ def delete_cart(user_id: str) -> None:
     """
     url = f"{_base_url()}/carts/{user_id}"
     try:
-        response = httpx.delete(url, timeout=_TIMEOUT)
+        response = httpx.delete(url, timeout=_TIMEOUT, headers={"X-User-ID": user_id})
     except httpx.HTTPError as exc:
         logger.error("Cart service unreachable on delete: %s", exc)
         raise ExternalServiceError("cart-service", "Service unreachable")
