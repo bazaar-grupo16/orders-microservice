@@ -86,7 +86,7 @@ def _post_order(
 
 def _mock_happy_path(user_id: str) -> None:
     """Register respx mocks for the full Saga happy path (Cart + Inventory + Payments)."""
-    respx.get(f"http://cart-service:8000/carts/{user_id}").mock(
+    respx.get(f"http://cart-service:8000/cart/{user_id}").mock(
         return_value=httpx.Response(200, json=_cart_response(user_id)),
     )
     respx.post(url__regex=r"http://inventory-service:8000/internal/products/.*/stock/reserve").mock(
@@ -144,7 +144,7 @@ class TestCreateOrderHappyPath:
     def test_payments_preference_is_called_with_order_id(self, client: TestClient) -> None:
         """The Payments service must receive the order_id in the request body."""
         user_id = str(uuid.uuid4())
-        respx.get(f"http://cart-service:8000/carts/{user_id}").mock(
+        respx.get(f"http://cart-service:8000/cart/{user_id}").mock(
             return_value=httpx.Response(200, json=_cart_response(user_id)),
         )
         respx.post(url__regex=r"http://inventory-service:8000/internal/products/.*/stock/reserve").mock(
@@ -221,7 +221,7 @@ class TestCartErrors:
     @respx.mock
     def test_empty_cart_returns_400(self, client: TestClient) -> None:
         user_id = str(uuid.uuid4())
-        respx.get(f"http://cart-service:8000/carts/{user_id}").mock(
+        respx.get(f"http://cart-service:8000/cart/{user_id}").mock(
             return_value=httpx.Response(404),
         )
 
@@ -233,7 +233,7 @@ class TestCartErrors:
     @respx.mock
     def test_cart_service_down_returns_502(self, client: TestClient) -> None:
         user_id = str(uuid.uuid4())
-        respx.get(f"http://cart-service:8000/carts/{user_id}").mock(
+        respx.get(f"http://cart-service:8000/cart/{user_id}").mock(
             side_effect=httpx.ConnectTimeout("Timeout"),
         )
 
@@ -248,7 +248,7 @@ class TestInventoryErrors:
     @respx.mock
     def test_insufficient_stock_returns_409(self, client: TestClient) -> None:
         user_id = str(uuid.uuid4())
-        respx.get(f"http://cart-service:8000/carts/{user_id}").mock(
+        respx.get(f"http://cart-service:8000/cart/{user_id}").mock(
             return_value=httpx.Response(200, json=_cart_response(user_id)),
         )
         respx.post(url__regex=r"http://inventory-service:8000/internal/products/.*/stock/reserve").mock(
@@ -265,7 +265,7 @@ class TestInventoryErrors:
     @respx.mock
     def test_inventory_service_down_returns_502(self, client: TestClient) -> None:
         user_id = str(uuid.uuid4())
-        respx.get(f"http://cart-service:8000/carts/{user_id}").mock(
+        respx.get(f"http://cart-service:8000/cart/{user_id}").mock(
             return_value=httpx.Response(200, json=_cart_response(user_id)),
         )
         respx.post(url__regex=r"http://inventory-service:8000/internal/products/.*/stock/reserve").mock(
@@ -286,7 +286,7 @@ class TestPaymentsErrors:
     ) -> None:
         """If Payments is unreachable, stock is rolled back and 502 is returned."""
         user_id = str(uuid.uuid4())
-        respx.get(f"http://cart-service:8000/carts/{user_id}").mock(
+        respx.get(f"http://cart-service:8000/cart/{user_id}").mock(
             return_value=httpx.Response(200, json=_cart_response(user_id)),
         )
         respx.post(url__regex=r"http://inventory-service:8000/internal/products/.*/stock/reserve").mock(
@@ -310,7 +310,7 @@ class TestPaymentsErrors:
     ) -> None:
         """If Payments returns a 4xx/5xx, stock is rolled back and 502 is returned."""
         user_id = str(uuid.uuid4())
-        respx.get(f"http://cart-service:8000/carts/{user_id}").mock(
+        respx.get(f"http://cart-service:8000/cart/{user_id}").mock(
             return_value=httpx.Response(200, json=_cart_response(user_id)),
         )
         respx.post(url__regex=r"http://inventory-service:8000/internal/products/.*/stock/reserve").mock(
@@ -338,7 +338,7 @@ class TestPaymentsErrors:
         key = str(uuid.uuid4())
 
         # First attempt: Payments fails.
-        respx.get(f"http://cart-service:8000/carts/{user_id}").mock(
+        respx.get(f"http://cart-service:8000/cart/{user_id}").mock(
             return_value=httpx.Response(200, json=_cart_response(user_id)),
         )
         respx.post(url__regex=r"http://inventory-service:8000/internal/products/.*/stock/reserve").mock(
@@ -363,7 +363,7 @@ class TestPaymentsErrors:
         user_id = str(uuid.uuid4())
         key = str(uuid.uuid4())
 
-        respx.get(f"http://cart-service:8000/carts/{user_id}").mock(
+        respx.get(f"http://cart-service:8000/cart/{user_id}").mock(
             return_value=httpx.Response(200, json=_cart_response(user_id)),
         )
         respx.post(url__regex=r"http://inventory-service:8000/internal/products/.*/stock/reserve").mock(

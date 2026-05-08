@@ -42,7 +42,7 @@ class TestGetCart:
                 "totalPrice": {"value": "1500.00", "updatedAt": "2026-04-24T19:00:00Z"},
             },
         }
-        respx.get(f"http://cart-service:8000/carts/{user_id}").mock(
+        respx.get(f"http://cart-service:8000/cart/{user_id}").mock(
             return_value=httpx.Response(200, json=cart_response),
         )
 
@@ -58,7 +58,7 @@ class TestGetCart:
     @respx.mock
     def test_raises_cart_empty_on_404(self) -> None:
         user_id = str(uuid.uuid4())
-        respx.get(f"http://cart-service:8000/carts/{user_id}").mock(
+        respx.get(f"http://cart-service:8000/cart/{user_id}").mock(
             return_value=httpx.Response(404),
         )
 
@@ -75,7 +75,7 @@ class TestGetCart:
                 "totalPrice": {"value": "0.00", "updatedAt": "2026-04-24T19:00:00Z"},
             },
         }
-        respx.get(f"http://cart-service:8000/carts/{user_id}").mock(
+        respx.get(f"http://cart-service:8000/cart/{user_id}").mock(
             return_value=httpx.Response(200, json=cart_response),
         )
 
@@ -85,7 +85,7 @@ class TestGetCart:
     @respx.mock
     def test_raises_external_error_on_500(self) -> None:
         user_id = str(uuid.uuid4())
-        respx.get(f"http://cart-service:8000/carts/{user_id}").mock(
+        respx.get(f"http://cart-service:8000/cart/{user_id}").mock(
             return_value=httpx.Response(500, json={"detail": "Internal error"}),
         )
 
@@ -96,7 +96,7 @@ class TestGetCart:
     @respx.mock
     def test_raises_external_error_on_timeout(self) -> None:
         user_id = str(uuid.uuid4())
-        respx.get(f"http://cart-service:8000/carts/{user_id}").mock(
+        respx.get(f"http://cart-service:8000/cart/{user_id}").mock(
             side_effect=httpx.ConnectTimeout("Timeout"),
         )
 
@@ -110,7 +110,7 @@ class TestDeleteCart:
     @respx.mock
     def test_succeeds_on_204(self) -> None:
         user_id = str(uuid.uuid4())
-        respx.delete(f"http://cart-service:8000/carts/{user_id}").mock(
+        respx.delete(f"http://cart-service:8000/cart/{user_id}").mock(
             return_value=httpx.Response(204),
         )
 
@@ -120,7 +120,7 @@ class TestDeleteCart:
     @respx.mock
     def test_succeeds_on_200(self) -> None:
         user_id = str(uuid.uuid4())
-        respx.delete(f"http://cart-service:8000/carts/{user_id}").mock(
+        respx.delete(f"http://cart-service:8000/cart/{user_id}").mock(
             return_value=httpx.Response(200),
         )
 
@@ -129,7 +129,7 @@ class TestDeleteCart:
     @respx.mock
     def test_raises_external_error_on_failure(self) -> None:
         user_id = str(uuid.uuid4())
-        respx.delete(f"http://cart-service:8000/carts/{user_id}").mock(
+        respx.delete(f"http://cart-service:8000/cart/{user_id}").mock(
             return_value=httpx.Response(500),
         )
 

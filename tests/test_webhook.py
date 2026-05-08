@@ -78,7 +78,7 @@ class TestPaymentSuccess:
         user_id = str(uuid.uuid4())
 
         # Mock for order creation.
-        respx.get(f"http://cart-service:8000/carts/{user_id}").mock(
+        respx.get(f"http://cart-service:8000/cart/{user_id}").mock(
             return_value=httpx.Response(200, json=_cart_response(user_id)),
         )
         respx.post(url__regex=r"http://inventory-service:8000/internal/products/.*/stock/reserve").mock(
@@ -89,7 +89,7 @@ class TestPaymentSuccess:
 
         # Mock for webhook side effects.
         # (commit_stock is now a no-op)
-        respx.delete(f"http://cart-service:8000/carts/{user_id}").mock(
+        respx.delete(f"http://cart-service:8000/cart/{user_id}").mock(
             return_value=httpx.Response(204),
         )
 
@@ -105,7 +105,7 @@ class TestPaymentSuccess:
     def test_calls_inventory_commit(self, client: TestClient) -> None:
         user_id = str(uuid.uuid4())
 
-        respx.get(f"http://cart-service:8000/carts/{user_id}").mock(
+        respx.get(f"http://cart-service:8000/cart/{user_id}").mock(
             return_value=httpx.Response(200, json=_cart_response(user_id)),
         )
         respx.post(url__regex=r"http://inventory-service:8000/internal/products/.*/stock/reserve").mock(
@@ -116,7 +116,7 @@ class TestPaymentSuccess:
 
         # commit_stock is no-op, test is adapted to just check it passes
         # we can remove commit_route completely
-        respx.delete(f"http://cart-service:8000/carts/{user_id}").mock(
+        respx.delete(f"http://cart-service:8000/cart/{user_id}").mock(
             return_value=httpx.Response(204),
         )
 
@@ -133,7 +133,7 @@ class TestPaymentSuccess:
     def test_calls_cart_delete(self, client: TestClient) -> None:
         user_id = str(uuid.uuid4())
 
-        respx.get(f"http://cart-service:8000/carts/{user_id}").mock(
+        respx.get(f"http://cart-service:8000/cart/{user_id}").mock(
             return_value=httpx.Response(200, json=_cart_response(user_id)),
         )
         respx.post(url__regex=r"http://inventory-service:8000/internal/products/.*/stock/reserve").mock(
@@ -143,7 +143,7 @@ class TestPaymentSuccess:
         order_id = _create_order_via_api(client, user_id)
 
         # commit is no-op
-        delete_route = respx.delete(f"http://cart-service:8000/carts/{user_id}").mock(
+        delete_route = respx.delete(f"http://cart-service:8000/cart/{user_id}").mock(
             return_value=httpx.Response(204),
         )
 
@@ -162,7 +162,7 @@ class TestPaymentFailed:
     def test_updates_status_to_pago_rechazado(self, client: TestClient) -> None:
         user_id = str(uuid.uuid4())
 
-        respx.get(f"http://cart-service:8000/carts/{user_id}").mock(
+        respx.get(f"http://cart-service:8000/cart/{user_id}").mock(
             return_value=httpx.Response(200, json=_cart_response(user_id)),
         )
         respx.post(url__regex=r"http://inventory-service:8000/internal/products/.*/stock/reserve").mock(
@@ -187,7 +187,7 @@ class TestPaymentFailed:
     def test_calls_inventory_rollback(self, client: TestClient) -> None:
         user_id = str(uuid.uuid4())
 
-        respx.get(f"http://cart-service:8000/carts/{user_id}").mock(
+        respx.get(f"http://cart-service:8000/cart/{user_id}").mock(
             return_value=httpx.Response(200, json=_cart_response(user_id)),
         )
         respx.post(url__regex=r"http://inventory-service:8000/internal/products/.*/stock/reserve").mock(
@@ -225,7 +225,7 @@ class TestWebhookErrors:
         second time because the order is no longer PENDIENTE_DE_PAGO."""
         user_id = str(uuid.uuid4())
 
-        respx.get(f"http://cart-service:8000/carts/{user_id}").mock(
+        respx.get(f"http://cart-service:8000/cart/{user_id}").mock(
             return_value=httpx.Response(200, json=_cart_response(user_id)),
         )
         respx.post(url__regex=r"http://inventory-service:8000/internal/products/.*/stock/reserve").mock(
@@ -235,7 +235,7 @@ class TestWebhookErrors:
         order_id = _create_order_via_api(client, user_id)
 
         # commit is no-op
-        respx.delete(f"http://cart-service:8000/carts/{user_id}").mock(
+        respx.delete(f"http://cart-service:8000/cart/{user_id}").mock(
             return_value=httpx.Response(204),
         )
 
