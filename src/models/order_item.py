@@ -32,6 +32,7 @@ class OrderItem(Base):
 
     # ── Product snapshot ──────────────────────────────
     product_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
+    seller_id: Mapped[uuid.UUID | None] = mapped_column(nullable=True)
     product_name: Mapped[str] = mapped_column(String(255), nullable=False)
     quantity: Mapped[int] = mapped_column(nullable=False)
     unit_price: Mapped[float] = mapped_column(

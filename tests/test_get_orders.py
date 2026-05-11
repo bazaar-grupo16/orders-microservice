@@ -27,6 +27,7 @@ def _create_db_order(
     db_session: Session,
     user_id: uuid.UUID,
     status: str = OrderStatus.PENDIENTE_DE_PAGO,
+    seller_id: uuid.UUID | None = None,
 ) -> Order:
     return order_repository.create_order(
         db_session,
@@ -38,6 +39,7 @@ def _create_db_order(
         items=[
             {
                 "product_id": uuid.uuid4(),
+                "seller_id": seller_id,
                 "product_name": "Test Product",
                 "quantity": 1,
                 "unit_price": 1500.0,
@@ -140,6 +142,71 @@ class TestListOrders:
         assert data["total"] == 2
         assert len(data["orders"]) == 2
         assert all(o["status"] == OrderStatus.CONFIRMADA for o in data["orders"])
+
+    def test_filters_by_seller_id(
+        self, client: TestClient, db_session: Session
+    ) -> None:
+        user_id = uuid.uuid4()
+        seller_a = uuid.uuid4()
+        seller_b = uuid.uuid4()
+
+        _create_db_order(db_session, user_id, seller_id=seller_a)
+        _create_db_order(db_session, user_id, seller_id=seller_a)
+        _create_db_order(db_session, user_id, seller_id=seller_b)
+
+        response = client.get(
+            f"/orders?seller_id={seller_a}",
+            headers={"X-User-Id": str(user_id)},
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["total"] == 2
+        assert len(data["orders"]) == 2
+        assert all(
+            any(item["seller_id"] == str(seller_a) for item in order["items"])
+            for order in data["orders"]
+        )
+
+    def test_sales_endpoint_returns_only_seller_items(
+        self, client: TestClient, db_session: Session
+    ) -> None:
+        pass
+
+    def test_sales_endpoint_returns_only_seller_items(
+        self, client: TestClient, db_session: Session
+    ) -> None:
+        buyer = uuid.uuid4()
+        seller = uuid.uuid4()
+        other_seller = uuid.uuid4()
+
+        # Create an order that has items from seller and other_seller
+        order = order_repository.create_order(
+            db_session,
+            user_id=buyer,
+            idempotency_key=str(uuid.uuid4()),
+            shipping_address=_VALID_ADDRESS,
+            total_amount=3000.0,
+            status=OrderStatus.CONFIRMADA,
+            items=[
+                {"product_id": uuid.uuid4(), "seller_id": seller, "product_name": "A", "quantity": 1, "unit_price": 1000.0},
+                {"product_id": uuid.uuid4(), "seller_id": other_seller, "product_name": "B", "quantity": 1, "unit_price": 2000.0},
+            ],
+        )
+
+        response = client.get(
+            "/orders/sales",
+            headers={"X-User-Id": str(seller)},
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        # Seller should see the order but only their item
+        assert data["total"] == 1
+        assert len(data["orders"]) == 1
+        items = data["orders"][0]["items"]
+        assert len(items) == 1
+        assert items[0]["seller_id"] == str(seller)
 
     def test_pagination(
         self, client: TestClient, db_session: Session

@@ -36,6 +36,7 @@ class OrderItemResponse(BaseModel):
 
     id: UUID
     product_id: UUID
+    seller_id: UUID | None = None
     product_name: str
     quantity: int
     unit_price: float

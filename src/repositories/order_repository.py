@@ -9,7 +9,7 @@ service layer.
 import uuid
 from collections.abc import Sequence
 
-from sqlalchemy import func
+from sqlalchemy import exists, func
 from sqlalchemy.orm import Session
 
 from src.models.order import Order
@@ -65,6 +65,7 @@ def list_by_user(
     user_id: uuid.UUID,
     *,
     status_filter: str | None = None,
+    seller_id: uuid.UUID | None = None,
     offset: int = 0,
     limit: int = 20,
 ) -> tuple[Sequence[Order], int]:
@@ -78,6 +79,47 @@ def list_by_user(
     query = db.query(Order).filter(Order.user_id == user_id)
     if status_filter:
         query = query.filter(Order.status == status_filter)
+    if seller_id is not None:
+        has_seller_items = exists().where(
+            OrderItem.order_id == Order.id,
+            OrderItem.seller_id == seller_id,
+        )
+        query = query.filter(has_seller_items)
+
+    total = query.with_entities(func.count(Order.id)).scalar() or 0
+    orders = (
+        query
+        .order_by(Order.created_at.desc())
+        .offset(offset)
+        .limit(limit)
+        .all()
+    )
+    return orders, total
+
+
+def list_by_seller(
+    db: Session,
+    seller_id: uuid.UUID,
+    *,
+    status_filter: str | None = None,
+    offset: int = 0,
+    limit: int = 20,
+) -> tuple[Sequence[Order], int]:
+    """Return a paginated list of orders that contain at least one
+    item sold by *seller_id*.
+
+    This does not alter the items on the returned Order objects; the
+    caller may filter items to the specific seller when serialising.
+    """
+    query = db.query(Order)
+    if status_filter:
+        query = query.filter(Order.status == status_filter)
+
+    has_seller_items = exists().where(
+        OrderItem.order_id == Order.id,
+        OrderItem.seller_id == seller_id,
+    )
+    query = query.filter(has_seller_items)
 
     total = query.with_entities(func.count(Order.id)).scalar() or 0
     orders = (

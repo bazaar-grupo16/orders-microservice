@@ -36,7 +36,8 @@ La finalización de la compra se da mediante el endpoint de `payment-webhook`. D
 |--------|------|--------------------|-------------|
 | `POST` | `/orders` | `Idempotency-Key`, `X-User-Id` | Crea una nueva orden, recupera el carrito, reserva el stock e inicializa la Saga en estado `PENDIENTE_DE_PAGO`. |
 | `GET` | `/orders/{order_id}` | `X-User-Id` | Recupera el detalle completo de una orden específica (requiere ser el dueño). |
-| `GET` | `/orders` | `X-User-Id` | Lista las órdenes del usuario. Soporta paginación (`page`, `size`) y filtros (`order_status`). |
+| `GET` | `/orders` | `X-User-Id` | Lista las órdenes del usuario. Soporta paginación (`page`, `size`) y filtros (`order_status`, `seller_id`). |
+| `GET` | `/orders/sales` | `X-User-Id` | Lista las órdenes donde el usuario es vendedor. Devuelve cada orden únicamente con los ítems de ese vendedor. |
 
 ### Webhooks y Administración (Sellers)
 

@@ -99,6 +99,7 @@ def create_order(
     order_items = [
         {
             "product_id": item["product_id"],
+            "seller_id": item.get("seller_id"),
             "product_name": item["product_name"],
             "quantity": item["quantity"],
             "unit_price": item["unit_price"],
@@ -315,6 +316,7 @@ def list_orders(
     *,
     user_id: uuid.UUID,
     status_filter: str | None = None,
+    seller_id: uuid.UUID | None = None,
     page: int = 1,
     size: int = 20,
 ) -> tuple[list[Order], int]:
@@ -336,6 +338,31 @@ def list_orders(
     orders, total = order_repository.list_by_user(
         db,
         user_id,
+        status_filter=status_filter,
+        seller_id=seller_id,
+        offset=offset,
+        limit=size,
+    )
+    return list(orders), total
+
+
+def list_sales(
+    db: Session,
+    *,
+    seller_id: uuid.UUID,
+    status_filter: str | None = None,
+    page: int = 1,
+    size: int = 20,
+) -> tuple[list[Order], int]:
+    """List orders that include items sold by *seller_id*.
+
+    Returns full Order objects (with all items); the API layer will
+    filter items to the specific seller before serialising the response.
+    """
+    offset = (page - 1) * size
+    orders, total = order_repository.list_by_seller(
+        db,
+        seller_id=seller_id,
         status_filter=status_filter,
         offset=offset,
         limit=size,

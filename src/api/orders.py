@@ -108,6 +108,7 @@ def list_orders(
     db: DbSession,
     user_id: CurrentUserId,
     order_status: str | None = None,
+    seller_id: UUID | None = None,
     page: int = 1,
     size: int = 20,
 ) -> OrderListResponse:
@@ -116,6 +117,7 @@ def list_orders(
         db,
         user_id=user_id,
         status_filter=order_status,
+        seller_id=seller_id,
         page=page,
         size=size,
     )
@@ -134,6 +136,56 @@ def list_orders(
         page=page,
         size=size,
     )
+
+
+@router.get(
+    "/sales",
+    response_model=OrderListResponse,
+    status_code=status.HTTP_200_OK,
+    summary="List sales for the current seller",
+)
+def list_sales(
+    db: DbSession,
+    user_id: CurrentUserId,
+    order_status: str | None = None,
+    page: int = 1,
+    size: int = 20,
+) -> OrderListResponse:
+    """Retrieve paginated orders that contain items sold by the
+    authenticated user. Each returned order will include only the
+    items that belong to this seller.
+    """
+    orders, total = order_service.list_sales(
+        db,
+        seller_id=user_id,
+        status_filter=order_status,
+        page=page,
+        size=size,
+    )
+
+    order_responses = []
+    for order in orders:
+        order_dict = order.__dict__.copy()
+        order_dict["order_id"] = order.id
+
+        # Keep only items belonging to this seller in the response.
+        filtered_items = []
+        for item in order.items:
+            if getattr(item, "seller_id", None) == user_id:
+                item_dict = item.__dict__.copy()
+                item_dict["product_id"] = item.product_id
+                filtered_items.append(item_dict)
+
+        order_dict["items"] = filtered_items
+        order_responses.append(OrderResponse.model_validate(order_dict))
+
+    return OrderListResponse(
+        orders=order_responses,
+        total=total,
+        page=page,
+        size=size,
+    )
+
 
 
 @router.get(
