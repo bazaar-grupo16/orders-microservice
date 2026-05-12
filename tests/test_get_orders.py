@@ -171,17 +171,12 @@ class TestListOrders:
     def test_sales_endpoint_returns_only_seller_items(
         self, client: TestClient, db_session: Session
     ) -> None:
-        pass
-
-    def test_sales_endpoint_returns_only_seller_items(
-        self, client: TestClient, db_session: Session
-    ) -> None:
         buyer = uuid.uuid4()
         seller = uuid.uuid4()
         other_seller = uuid.uuid4()
 
         # Create an order that has items from seller and other_seller
-        order = order_repository.create_order(
+        order_repository.create_order(
             db_session,
             user_id=buyer,
             idempotency_key=str(uuid.uuid4()),
