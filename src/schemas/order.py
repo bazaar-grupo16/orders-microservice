@@ -8,7 +8,7 @@ from the ``X-User-Id`` header injected by NGINX after JWT validation.
 from datetime import datetime
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from src.schemas.address import ShippingAddress
 
@@ -46,6 +46,25 @@ class OrderItemResponse(BaseModel):
     updated_at: datetime | None = None
 
 
+class OrderStatusHistoryResponse(BaseModel):
+    """A status transition event for order-level or item-level flows."""
+
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
+
+    item_id: UUID | None = None
+    previous_status: str | None = Field(default=None, validation_alias="status_previous")
+    new_status: str = Field(validation_alias="status_new")
+    timestamp: datetime
+    origin: str
+    tracking_code: str | None = None
+
+
+class OrderItemDetailResponse(OrderItemResponse):
+    """Order item with item-specific status history."""
+
+    status_history: list[OrderStatusHistoryResponse] = []
+
+
 class OrderResponse(BaseModel):
     """Full order detail returned by ``GET /orders/{id}``"""
 
@@ -61,7 +80,8 @@ class OrderResponse(BaseModel):
     init_point: str | None = None
     created_at: datetime
     updated_at: datetime
-    items: list[OrderItemResponse] = []
+    items: list[OrderItemDetailResponse] = []
+    status_history: list[OrderStatusHistoryResponse] = []
 
 
 class OrderCreatedResponse(BaseModel):

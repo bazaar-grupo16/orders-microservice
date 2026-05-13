@@ -210,10 +210,28 @@ def get_seller_order(
     
     # Filter to seller's items only
     seller_items = [item for item in order.items if item.seller_id == user_id]
+    seller_history = order_service.get_status_history(
+        db,
+        order_id=order_id,
+        seller_id=user_id,
+    )
+
+    history_by_item_id: dict[UUID, list] = {}
+    for event in seller_history:
+        if event.item_id is None:
+            continue
+        history_by_item_id.setdefault(event.item_id, []).append(event)
+
+    seller_item_dicts = []
+    for item in seller_items:
+        item_dict = item.__dict__.copy()
+        item_dict["status_history"] = history_by_item_id.get(item.id, [])
+        seller_item_dicts.append(item_dict)
     
     order_dict = order.__dict__.copy()
     order_dict["order_id"] = order.id
-    order_dict["items"] = seller_items
+    order_dict["items"] = seller_item_dicts
+    order_dict["status_history"] = seller_history
     order_dict["total_amount"] = sum(item.unit_price * item.quantity for item in seller_items)
     return OrderResponse.model_validate(order_dict)
 
@@ -299,9 +317,27 @@ def get_order(
         order_id=order_id,
         user_id=user_id,
     )
+
+    full_history = order_service.get_status_history(
+        db,
+        order_id=order_id,
+    )
+    history_by_item_id: dict[UUID, list] = {}
+    for event in full_history:
+        if event.item_id is None:
+            continue
+        history_by_item_id.setdefault(event.item_id, []).append(event)
+
+    item_dicts = []
+    for item in order.items:
+        item_dict = item.__dict__.copy()
+        item_dict["status_history"] = history_by_item_id.get(item.id, [])
+        item_dicts.append(item_dict)
     
     order_dict = order.__dict__.copy()
     order_dict["order_id"] = order.id
+    order_dict["items"] = item_dicts
+    order_dict["status_history"] = full_history
     return OrderResponse.model_validate(order_dict)
 
 

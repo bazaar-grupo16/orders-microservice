@@ -118,6 +118,14 @@ def create_order(
             status=OrderStatus.PENDIENTE_DE_PAGO,
             items=order_items,
         )
+        order_repository.record_status_change(
+            db,
+            order_id=order.id,
+            item_id=None,
+            previous_status=None,
+            new_status=OrderStatus.PENDIENTE_DE_PAGO.value,
+            origin="system",
+        )
     except Exception:
         # Compensation: rollback the stock reservation if DB fails.
         logger.error(
@@ -240,8 +248,18 @@ def resolve_payment(
     # Validate state machine transition.
     validate_transition(OrderStatus(order.status), target_status)
 
+    previous_status = order.status
+
     # Update order status.
     order = order_repository.update_status(db, order, target_status)
+    order_repository.record_status_change(
+        db,
+        order_id=order.id,
+        item_id=None,
+        previous_status=previous_status,
+        new_status=target_status.value,
+        origin="webhook",
+    )
     logger.info(
         "Payment resolved: order=%s status=%s tx=%s",
         order_id, target_status, transaction_id,
@@ -423,17 +441,29 @@ def update_order_status(
     if order is None:
         raise OrderNotFoundError(str(order_id))
 
+    current_status = OrderStatus(order.status)
+    target_status = OrderStatus(new_status)
+
     # Validate transition
-    validate_transition(OrderStatus(order.status), OrderStatus(new_status))
+    validate_transition(current_status, target_status)
 
     # Apply tracking code if provided
     if tracking_code is not None:
         order = order_repository.update_tracking_code(db, order, tracking_code)
 
     # Apply status update
-    order = order_repository.update_status(db, order, OrderStatus(new_status))
-    
-    _propagate_status_to_items(db, order, new_status)
+    order = order_repository.update_status(db, order, target_status)
+    order_repository.record_status_change(
+        db,
+        order_id=order.id,
+        item_id=None,
+        previous_status=current_status.value,
+        new_status=target_status.value,
+        origin="seller",
+        tracking_code=tracking_code,
+    )
+
+    _propagate_status_to_items(db, order, target_status.value, origin="seller")
     
     logger.info(
         "Order status updated: order=%s old_status=%s new_status=%s",
@@ -479,6 +509,15 @@ def update_item_status(
     item = order_repository.update_item_status(
         db, item, new_status, tracking_code=tracking_code
     )
+    order_repository.record_status_change(
+        db,
+        order_id=item.order_id,
+        item_id=item.id,
+        previous_status=current_status.value,
+        new_status=target_status.value,
+        origin="seller",
+        tracking_code=tracking_code,
+    )
     
     logger.debug(
         "Item status updated: item=%s old_status=%s new_status=%s tracking=%s",
@@ -491,14 +530,51 @@ def _propagate_status_to_items(
     db: Session,
     order: Order,
     new_status: str,
+    origin: str,
 ):
     if OrderStatus(new_status) == OrderStatus.CONFIRMADA:
         for item in order.items:
+            previous_status = item.status
             order_repository.update_item_status(
                 db, item, OrderItemLogisticStatus.CONFIRMADO.value
             )
+            order_repository.record_status_change(
+                db,
+                order_id=order.id,
+                item_id=item.id,
+                previous_status=previous_status,
+                new_status=OrderItemLogisticStatus.CONFIRMADO.value,
+                origin=origin,
+            )
     if OrderStatus(new_status) == OrderStatus.PAGO_RECHAZADO:
         for item in order.items:
+            previous_status = item.status
             order_repository.update_item_status(
                 db, item, OrderItemLogisticStatus.CANCELADO.value
             )
+            order_repository.record_status_change(
+                db,
+                order_id=order.id,
+                item_id=item.id,
+                previous_status=previous_status,
+                new_status=OrderItemLogisticStatus.CANCELADO.value,
+                origin=origin,
+            )
+
+
+def get_status_history(
+    db: Session,
+    *,
+    order_id: uuid.UUID,
+    seller_id: uuid.UUID | None = None,
+) -> list:
+    """Return status transition history for an order.
+
+    If ``seller_id`` is provided, only item events for that seller are returned.
+    """
+    history = order_repository.get_status_history(
+        db,
+        order_id=order_id,
+        seller_id=seller_id,
+    )
+    return list(history)

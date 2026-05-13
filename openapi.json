@@ -376,6 +376,146 @@
         }
       }
     },
+    "/orders/sales/{order_id}": {
+      "get": {
+        "tags": [
+          "Orders"
+        ],
+        "summary": "Get a specific order for seller",
+        "description": "Retrieve a single order by ID, showing only items sold by the user.\n\nValidates that the order contains at least one item sold by the user.",
+        "operationId": "get_seller_order_orders_sales__order_id__get",
+        "parameters": [
+          {
+            "name": "order_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Order Id"
+            }
+          },
+          {
+            "name": "x-user-id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-User-Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrderResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/orders/sales/{order_id}/{item_id}/status": {
+      "patch": {
+        "tags": [
+          "Orders"
+        ],
+        "summary": "Update item logistic status (Seller)",
+        "description": "Update the logistic status of an order item.\n\nOnly sellers can update items they sold. The transition is validated\nagainst the item logistic state machine.",
+        "operationId": "update_item_status_orders_sales__order_id___item_id__status_patch",
+        "parameters": [
+          {
+            "name": "order_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Order Id"
+            }
+          },
+          {
+            "name": "item_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Item Id"
+            }
+          },
+          {
+            "name": "x-user-id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-User-Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateStatusRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrderResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/orders/{order_id}": {
       "get": {
         "tags": [
@@ -561,7 +701,7 @@
         "title": "OrderCreatedResponse",
         "description": "Response for ``POST /orders`` \u2014 201 Created.\n\nIncludes the MercadoPago ``init_point`` URL that the frontend must\nuse to redirect the user to the payment screen."
       },
-      "OrderItemResponse": {
+      "OrderItemDetailResponse": {
         "properties": {
           "id": {
             "type": "string",
@@ -596,6 +736,53 @@
           "unit_price": {
             "type": "number",
             "title": "Unit Price"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "tracking_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tracking Code"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          },
+          "status_history": {
+            "items": {
+              "$ref": "#/components/schemas/OrderStatusHistoryResponse"
+            },
+            "type": "array",
+            "title": "Status History",
+            "default": []
           }
         },
         "type": "object",
@@ -604,10 +791,11 @@
           "product_id",
           "product_name",
           "quantity",
-          "unit_price"
+          "unit_price",
+          "status"
         ],
-        "title": "OrderItemResponse",
-        "description": "A single line-item within an order response."
+        "title": "OrderItemDetailResponse",
+        "description": "Order item with item-specific status history."
       },
       "OrderListResponse": {
         "properties": {
@@ -711,10 +899,18 @@
           },
           "items": {
             "items": {
-              "$ref": "#/components/schemas/OrderItemResponse"
+              "$ref": "#/components/schemas/OrderItemDetailResponse"
             },
             "type": "array",
             "title": "Items",
+            "default": []
+          },
+          "status_history": {
+            "items": {
+              "$ref": "#/components/schemas/OrderStatusHistoryResponse"
+            },
+            "type": "array",
+            "title": "Status History",
             "default": []
           }
         },
@@ -745,7 +941,66 @@
           "REEMBOLSO_PROCESADO"
         ],
         "title": "OrderStatus",
-        "description": "All valid order states.  Uses ``StrEnum`` so the value is the\nstring itself, which is what gets stored in the database column."
+        "description": "All valid order states.  Uses ``StrEnum`` so the value is the\nstring itself, which is what gets stored in the database column.\n\nThese represent the financial state of the order, not the logistics state."
+      },
+      "OrderStatusHistoryResponse": {
+        "properties": {
+          "item_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Item Id"
+          },
+          "previous_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Previous Status"
+          },
+          "new_status": {
+            "type": "string",
+            "title": "New Status"
+          },
+          "timestamp": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Timestamp"
+          },
+          "origin": {
+            "type": "string",
+            "title": "Origin"
+          },
+          "tracking_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tracking Code"
+          }
+        },
+        "type": "object",
+        "required": [
+          "new_status",
+          "timestamp",
+          "origin"
+        ],
+        "title": "OrderStatusHistoryResponse",
+        "description": "A status transition event for order-level or item-level flows."
       },
       "PaymentStatus": {
         "type": "string",

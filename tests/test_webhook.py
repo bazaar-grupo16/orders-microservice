@@ -101,6 +101,18 @@ class TestPaymentSuccess:
         assert response.status_code == 200
         assert response.json()["status"] == "CONFIRMADA"
 
+        detail_response = client.get(
+            f"/orders/{order_id}",
+            headers={"X-User-Id": user_id},
+        )
+        assert detail_response.status_code == 200
+        history = detail_response.json()["status_history"]
+        assert len(history) >= 2
+        assert any(
+            event["origin"] == "webhook" and event["new_status"] == "CONFIRMADA"
+            for event in history
+        )
+
     @respx.mock
     def test_calls_inventory_commit(self, client: TestClient) -> None:
         user_id = str(uuid.uuid4())
