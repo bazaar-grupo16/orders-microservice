@@ -18,7 +18,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from src.core.database import Base
 from src.core.utils import utc_now
-from src.models.order_status import OrderItemLogisticStatus, OrderStatus
+from src.models.order_status import OrderStatus
 
 
 class Order(Base):
@@ -74,31 +74,6 @@ class Order(Base):
         cascade="all, delete-orphan",
         lazy="selectin",
     )
-
-    def get_aggregated_status(self) -> OrderItemLogisticStatus | None:
-        """Compute aggregated logistic status from items.
-        
-        Returns None if no items exist. Otherwise returns the most restrictive state:
-        - Else if any item is EN_PREPARACION → EN_PREPARACION
-        - Else if all are ENVIADA → ENVIADA
-        - Else if all are ENTREGADA → ENTREGADA
-        - If any item is CANCELADA, consider the rest of the order for logistic status.
-        - If all are CANCELADA → CANCELADA
-        """
-        if not self.items:
-            return None
-
-        item_statuses = {item.status for item in self.items}
-
-        if OrderItemLogisticStatus.CANCELADO in item_statuses:
-            if len(item_statuses) == 1:
-                return OrderItemLogisticStatus.CANCELADO
-            item_statuses.discard(OrderItemLogisticStatus.CANCELADO)
-        if OrderItemLogisticStatus.EN_PREPARACION in item_statuses:
-            return OrderItemLogisticStatus.EN_PREPARACION
-        if OrderItemLogisticStatus.ENVIADO in item_statuses:
-            return OrderItemLogisticStatus.ENVIADO
-        return OrderItemLogisticStatus.ENTREGADO
 
     def __repr__(self) -> str:
         return f"<Order {self.id} status={self.status}>"

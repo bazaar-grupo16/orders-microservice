@@ -54,3 +54,12 @@ class OrderItemLogisticStatus(StrEnum):
     ENVIADO = "ENVIADO"
     ENTREGADO = "ENTREGADO"
     CANCELADO = "CANCELADO"
+
+ITEM_STATUS_TO_ORDER_STATUS: dict[str, str] = {
+    OrderItemLogisticStatus.PENDIENTE_DE_PAGO.value: OrderStatus.PENDIENTE_DE_PAGO.value,
+    OrderItemLogisticStatus.CONFIRMADO.value: OrderStatus.CONFIRMADA.value,
+    OrderItemLogisticStatus.EN_PREPARACION.value: OrderStatus.EN_PREPARACION.value,
+    OrderItemLogisticStatus.ENVIADO.value: OrderStatus.ENVIADA.value,
+    OrderItemLogisticStatus.ENTREGADO.value: OrderStatus.ENTREGADA.value,
+    OrderItemLogisticStatus.CANCELADO.value: OrderStatus.CANCELADA.value,
+}

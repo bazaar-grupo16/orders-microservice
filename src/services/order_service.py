@@ -526,6 +526,54 @@ def update_item_status(
     
     return item
 
+def confirm_item_delivery(
+    db: Session,
+    *,
+    order_id: uuid.UUID,
+    item_id: uuid.UUID,
+    user_id: uuid.UUID,
+) -> Order:
+    """Confirm delivery for a single order item by the buyer.
+
+    Validates ownership and that the item is in ``ENVIADO`` before
+    transitioning it to ``ENTREGADO`` and recording a history event
+    with origin "buyer".
+    """
+    order = order_repository.get_by_id(db, order_id)
+    if order is None:
+        raise OrderNotFoundError(str(order_id))
+    if order.user_id != user_id:
+        raise OrderAccessDeniedError()
+
+    item = order_repository.get_item_by_id(db, item_id)
+    if item is None or item.order_id != order_id:
+        raise OrderNotFoundError(f"OrderItem {item_id} not found for order {order_id}")
+
+    current_status = OrderItemLogisticStatus(item.status)
+    target_status = OrderItemLogisticStatus.ENTREGADO
+
+    # Only allow transition ENVIADO -> ENTREGADO
+    validate_item_transition(current_status, target_status)
+
+    # Apply update
+    order_repository.update_item_status(
+        db,
+        item,
+        target_status.value,
+    )
+    order_repository.record_status_change(
+        db,
+        order_id=order.id,
+        item_id=item.id,
+        previous_status=current_status.value,
+        new_status=target_status.value,
+        origin="buyer",
+    )
+
+    logger.info("Item delivery confirmed: order=%s buyer=%s item=%s", order.id, user_id, item.id)
+    # Return fresh order state
+    return order_repository.get_by_id(db, order_id)
+
 def _propagate_status_to_items(
     db: Session,
     order: Order,
