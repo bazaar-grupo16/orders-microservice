@@ -9,12 +9,27 @@ from enum import StrEnum
 
 from pydantic import BaseModel
 
+from src.models.order_status import OrderStatus
+
 
 class PaymentStatus(StrEnum):
     """Possible outcomes reported by the Payments service."""
 
-    SUCCESS = "SUCCESS"
-    FAILED = "FAILED"
+    PENDING = "PENDING"
+    APPROVED = "APPROVED"
+    REJECTED = "REJECTED"
+    CANCELED = "CANCELED"
+    REFUNDED = "REFUNDED"
+
+
+def payment_status_to_order_status(payment_status: PaymentStatus) -> OrderStatus | None:
+    """Translate a Payments status into the local financial order status."""
+
+    if payment_status == PaymentStatus.APPROVED:
+        return OrderStatus.CONFIRMADA
+    if payment_status in {PaymentStatus.REJECTED, PaymentStatus.CANCELED, PaymentStatus.REFUNDED}:
+        return OrderStatus.PAGO_RECHAZADO
+    return None
 
 
 class PaymentWebhookRequest(BaseModel):

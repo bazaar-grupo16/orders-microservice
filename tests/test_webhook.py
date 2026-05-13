@@ -2,9 +2,10 @@
 Integration tests for ``POST /orders/{id}/payment-webhook``.
 
 Each test first creates an order via the Saga (mocking Cart + Inventory),
-then calls the webhook with SUCCESS or FAILED to verify the resolution.
+then calls the webhook with APPROVED or REJECTED to verify the resolution.
 """
 
+import json
 import uuid
 
 import httpx
@@ -69,7 +70,7 @@ def _create_order_via_api(client: TestClient, user_id: str) -> str:
         return_value=httpx.Response(200, json=_stock_lookup_response(cart_payload)),
     )
     respx.post("http://inventory-service:8000/internal/products/stock/reserve").mock(return_value=httpx.Response(200, json={"data": []}))
-    respx.post("http://payments-service:8000/payments/preferences").mock(
+    payments_route = respx.post("http://payments-service:8000/payments/preferences").mock(
         return_value=httpx.Response(201, json=_PREFERENCE_RESPONSE),
     )
     response = client.post(
@@ -81,6 +82,9 @@ def _create_order_via_api(client: TestClient, user_id: str) -> str:
         },
     )
     assert response.status_code == 201
+    request_payload = json.loads(payments_route.calls.last.request.content)
+    assert request_payload["order_id"] is not None
+    assert all("line_item_id" in item for item in request_payload["items"])
     return response.json()["order_id"]
 
 
@@ -88,7 +92,7 @@ def _create_order_via_api(client: TestClient, user_id: str) -> str:
 
 
 class TestPaymentSuccess:
-    """Webhook with ``SUCCESS`` → CONFIRMADA + commit + clear cart."""
+    """Webhook with ``APPROVED`` → CONFIRMADA + commit + clear cart."""
 
     @respx.mock
     def test_updates_status_to_confirmada(self, client: TestClient) -> None:
@@ -105,7 +109,7 @@ class TestPaymentSuccess:
 
         response = client.post(
             f"/orders/{order_id}/payment-webhook",
-            json={"status": "SUCCESS", "transaction_id": "tx-123"},
+            json={"status": "APPROVED", "transaction_id": "tx-123"},
         )
 
         assert response.status_code == 200
@@ -137,7 +141,7 @@ class TestPaymentSuccess:
 
         response = client.post(
             f"/orders/{order_id}/payment-webhook",
-            json={"status": "SUCCESS", "transaction_id": "tx-456"},
+            json={"status": "APPROVED", "transaction_id": "tx-456"},
         )
 
         # The test originally checked if commit_route.called
@@ -157,14 +161,14 @@ class TestPaymentSuccess:
 
         client.post(
             f"/orders/{order_id}/payment-webhook",
-            json={"status": "SUCCESS", "transaction_id": "tx-789"},
+            json={"status": "APPROVED", "transaction_id": "tx-789"},
         )
 
         assert delete_route.called
 
 
 class TestPaymentFailed:
-    """Webhook with ``FAILED`` → PAGO_RECHAZADO + rollback stock."""
+    """Webhook with ``REJECTED`` → PAGO_RECHAZADO + rollback stock."""
 
     @respx.mock
     def test_updates_status_to_pago_rechazado(self, client: TestClient) -> None:
@@ -178,7 +182,7 @@ class TestPaymentFailed:
 
         response = client.post(
             f"/orders/{order_id}/payment-webhook",
-            json={"status": "FAILED", "transaction_id": "tx-fail-1"},
+            json={"status": "REJECTED", "transaction_id": "tx-fail-1"},
         )
 
         assert response.status_code == 200
@@ -196,7 +200,7 @@ class TestPaymentFailed:
 
         client.post(
             f"/orders/{order_id}/payment-webhook",
-            json={"status": "FAILED", "transaction_id": "tx-fail-2"},
+            json={"status": "REJECTED", "transaction_id": "tx-fail-2"},
         )
 
         assert rollback_route.called
@@ -209,7 +213,7 @@ class TestWebhookErrors:
         fake_id = str(uuid.uuid4())
         response = client.post(
             f"/orders/{fake_id}/payment-webhook",
-            json={"status": "SUCCESS", "transaction_id": "tx-ghost"},
+            json={"status": "APPROVED", "transaction_id": "tx-ghost"},
         )
         assert response.status_code == 404
 
@@ -229,14 +233,14 @@ class TestWebhookErrors:
         # First call — should succeed.
         first = client.post(
             f"/orders/{order_id}/payment-webhook",
-            json={"status": "SUCCESS", "transaction_id": "tx-dup-1"},
+            json={"status": "APPROVED", "transaction_id": "tx-dup-1"},
         )
         assert first.status_code == 200
 
         # Second call — state machine rejects.
         second = client.post(
             f"/orders/{order_id}/payment-webhook",
-            json={"status": "SUCCESS", "transaction_id": "tx-dup-2"},
+            json={"status": "APPROVED", "transaction_id": "tx-dup-2"},
         )
         assert second.status_code == 409
 

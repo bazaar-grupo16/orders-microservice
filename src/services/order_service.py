@@ -23,7 +23,7 @@ from src.models.order_item import OrderItem
 from src.models.order_status import OrderItemLogisticStatus, OrderStatus
 from src.models.state_machine import validate_item_transition, validate_transition
 from src.repositories import order_repository
-from src.schemas.webhook import PaymentStatus
+from src.schemas.webhook import PaymentStatus, payment_status_to_order_status
 
 logger = logging.getLogger(__name__)
 
@@ -151,14 +151,15 @@ def create_order(
 
     # ── Step 5: Create payment preference ─────────────
     # Build items in the shape expected by the Payments service
-    # (PreferenceRequest.items: title, quantity, unit_price).
+    # (PreferenceRequest.items: title, quantity, unit_price, line_item_id).
     preference_items = [
         {
-            "title": item["product_name"],
-            "quantity": item["quantity"],
-            "unit_price": item["unit_price"],
+            "title": str(item.product_name),
+            "quantity": str(item.quantity),
+            "unit_price": str(item.unit_price),
+            "line_item_id": str(item.id),
         }
-        for item in cart_items
+        for item in order.items
     ]
 
     try:
@@ -248,10 +249,13 @@ def resolve_payment(
     if order is None:
         raise OrderNotFoundError(str(order_id))
 
-    if payment_status == PaymentStatus.SUCCESS:
-        target_status = OrderStatus.CONFIRMADA
-    else:
-        target_status = OrderStatus.PAGO_RECHAZADO
+    target_status = payment_status_to_order_status(payment_status)
+    if target_status is None:
+        logger.error(
+            "Ignoring unknown payment status: order=%s status=%s tx=%s",
+            order_id, payment_status, transaction_id,
+        )
+        return order
 
     # Validate state machine transition.
     validate_transition(OrderStatus(order.status), target_status)
@@ -274,7 +278,7 @@ def resolve_payment(
     )
 
     # ── Post-resolution side effects ──────────────────
-    if payment_status == PaymentStatus.SUCCESS:
+    if payment_status == PaymentStatus.APPROVED:
         _on_payment_success(order)
     else:
         _on_payment_failed(order)
