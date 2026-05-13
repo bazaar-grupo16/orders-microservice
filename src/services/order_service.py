@@ -90,6 +90,14 @@ def create_order(
     try:
         inventory_client.reserve_stock(reserve_payload)
     except InsufficientStockError:
+        product_ids = [str(item["product_id"]) for item in cart_items]
+        stock_levels = _get_stock_levels(product_ids)
+        insufficient_items = _build_insufficient_stock_items(cart_items, stock_levels)
+        if insufficient_items:
+            raise InsufficientStockError(
+                "Insufficient stock for one or more cart items",
+                items=insufficient_items,
+            )
         raise  # Propagate — no compensation needed (nothing reserved yet).
 
     # ── Step 4: Persist order ─────────────────────────
@@ -305,6 +313,37 @@ def _on_payment_failed(order: Order) -> None:
             "Stock rollback failed for order=%s. Manual intervention required.",
             order.id,
         )
+
+
+def _get_stock_levels(product_ids: list[str]) -> dict[str, int] | None:
+    try:
+        return inventory_client.get_stock_levels(product_ids)
+    except Exception:
+        return None
+
+
+def _build_insufficient_stock_items(
+    cart_items: list[dict],
+    stock_levels: dict[str, int] | None,
+) -> list[dict]:
+    if stock_levels is None:
+        return []
+
+    insufficient_items: list[dict] = []
+    for item in cart_items:
+        product_id = str(item["product_id"])
+        requested = int(item["quantity"])
+        available = int(stock_levels.get(product_id, 0))
+        if available < requested:
+            insufficient_items.append(
+                {
+                    "product_id": product_id,
+                    "product_name": item.get("product_name"),
+                    "requested": requested,
+                    "available": available,
+                }
+            )
+    return insufficient_items
 
 
 def get_order(

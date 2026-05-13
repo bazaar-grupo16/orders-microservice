@@ -44,6 +44,15 @@ def _cart_response(user_id: str) -> dict:
     }
 
 
+def _stock_lookup_response(cart_payload: dict) -> dict:
+    return {
+        "data": {
+            item["productId"]: item["quantity"] + 10
+            for item in cart_payload["data"]["items"]
+        }
+    }
+
+
 _PREFERENCE_RESPONSE = {
     "preference_id": "mp-pref-abc123",
     "init_point": "https://www.mercadopago.com.ar/checkout/v1/redirect?pref_id=mp-pref-abc123",
@@ -52,6 +61,14 @@ _PREFERENCE_RESPONSE = {
 
 def _create_order_via_api(client: TestClient, user_id: str) -> str:
     """Create an order (mocking Cart, Inventory and Payments) and return its ``order_id``."""
+    cart_payload = _cart_response(user_id)
+    respx.get(f"http://cart-service:8000/cart/{user_id}").mock(
+        return_value=httpx.Response(200, json=cart_payload),
+    )
+    respx.post("http://inventory-service:8000/internal/products/stocks").mock(
+        return_value=httpx.Response(200, json=_stock_lookup_response(cart_payload)),
+    )
+    respx.post("http://inventory-service:8000/internal/products/stock/reserve").mock(return_value=httpx.Response(200, json={"data": []}))
     respx.post("http://payments-service:8000/payments/preferences").mock(
         return_value=httpx.Response(201, json=_PREFERENCE_RESPONSE),
     )
@@ -78,13 +95,6 @@ class TestPaymentSuccess:
         user_id = str(uuid.uuid4())
 
         # Mock for order creation.
-        respx.get(f"http://cart-service:8000/cart/{user_id}").mock(
-            return_value=httpx.Response(200, json=_cart_response(user_id)),
-        )
-        respx.post(url__regex=r"http://inventory-service:8000/internal/products/.*/stock/reserve").mock(
-            return_value=httpx.Response(200, json={"stock": 9}),
-        )
-
         order_id = _create_order_via_api(client, user_id)
 
         # Mock for webhook side effects.
@@ -117,13 +127,6 @@ class TestPaymentSuccess:
     def test_calls_inventory_commit(self, client: TestClient) -> None:
         user_id = str(uuid.uuid4())
 
-        respx.get(f"http://cart-service:8000/cart/{user_id}").mock(
-            return_value=httpx.Response(200, json=_cart_response(user_id)),
-        )
-        respx.post(url__regex=r"http://inventory-service:8000/internal/products/.*/stock/reserve").mock(
-            return_value=httpx.Response(200, json={"stock": 9}),
-        )
-
         order_id = _create_order_via_api(client, user_id)
 
         # commit_stock is no-op, test is adapted to just check it passes
@@ -144,13 +147,6 @@ class TestPaymentSuccess:
     @respx.mock
     def test_calls_cart_delete(self, client: TestClient) -> None:
         user_id = str(uuid.uuid4())
-
-        respx.get(f"http://cart-service:8000/cart/{user_id}").mock(
-            return_value=httpx.Response(200, json=_cart_response(user_id)),
-        )
-        respx.post(url__regex=r"http://inventory-service:8000/internal/products/.*/stock/reserve").mock(
-            return_value=httpx.Response(200, json={"stock": 9}),
-        )
 
         order_id = _create_order_via_api(client, user_id)
 
@@ -174,16 +170,9 @@ class TestPaymentFailed:
     def test_updates_status_to_pago_rechazado(self, client: TestClient) -> None:
         user_id = str(uuid.uuid4())
 
-        respx.get(f"http://cart-service:8000/cart/{user_id}").mock(
-            return_value=httpx.Response(200, json=_cart_response(user_id)),
-        )
-        respx.post(url__regex=r"http://inventory-service:8000/internal/products/.*/stock/reserve").mock(
-            return_value=httpx.Response(200, json={"stock": 9}),
-        )
-
         order_id = _create_order_via_api(client, user_id)
 
-        respx.post(url__regex=r"http://inventory-service:8000/internal/products/.*/stock/release").mock(
+        respx.post("http://inventory-service:8000/internal/products/stock/release").mock(
             return_value=httpx.Response(200),
         )
 
@@ -199,16 +188,9 @@ class TestPaymentFailed:
     def test_calls_inventory_rollback(self, client: TestClient) -> None:
         user_id = str(uuid.uuid4())
 
-        respx.get(f"http://cart-service:8000/cart/{user_id}").mock(
-            return_value=httpx.Response(200, json=_cart_response(user_id)),
-        )
-        respx.post(url__regex=r"http://inventory-service:8000/internal/products/.*/stock/reserve").mock(
-            return_value=httpx.Response(200, json={"stock": 9}),
-        )
-
         order_id = _create_order_via_api(client, user_id)
 
-        rollback_route = respx.post(url__regex=r"http://inventory-service:8000/internal/products/.*/stock/release").mock(
+        rollback_route = respx.post("http://inventory-service:8000/internal/products/stock/release").mock(
             return_value=httpx.Response(200),
         )
 
@@ -236,13 +218,6 @@ class TestWebhookErrors:
         """Calling the webhook twice on the same order should fail the
         second time because the order is no longer PENDIENTE_DE_PAGO."""
         user_id = str(uuid.uuid4())
-
-        respx.get(f"http://cart-service:8000/cart/{user_id}").mock(
-            return_value=httpx.Response(200, json=_cart_response(user_id)),
-        )
-        respx.post(url__regex=r"http://inventory-service:8000/internal/products/.*/stock/reserve").mock(
-            return_value=httpx.Response(200, json={"stock": 9}),
-        )
 
         order_id = _create_order_via_api(client, user_id)
 
