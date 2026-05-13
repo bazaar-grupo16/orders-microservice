@@ -290,6 +290,76 @@
         }
       }
     },
+    "/orders/{order_id}/items/{item_id}/confirm-delivery": {
+      "post": {
+        "tags": [
+          "Orders"
+        ],
+        "summary": "Confirm delivery for a specific item by the buyer",
+        "description": "Confirm receipt of a single order item by the authenticated buyer.",
+        "operationId": "confirm_item_delivery_orders__order_id__items__item_id__confirm_delivery_post",
+        "parameters": [
+          {
+            "name": "order_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Order Id"
+            }
+          },
+          {
+            "name": "item_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Item Id"
+            }
+          },
+          {
+            "name": "x-user-id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-User-Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrderResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/orders/sales": {
       "get": {
         "tags": [
@@ -436,14 +506,14 @@
         }
       }
     },
-    "/orders/sales/{order_id}/{item_id}/status": {
+    "/orders/sales/{order_id}/items/{item_id}/status": {
       "patch": {
         "tags": [
           "Orders"
         ],
         "summary": "Update item logistic status (Seller)",
         "description": "Update the logistic status of an order item.\n\nOnly sellers can update items they sold. The transition is validated\nagainst the item logistic state machine.",
-        "operationId": "update_item_status_orders_sales__order_id___item_id__status_patch",
+        "operationId": "update_item_status_orders_sales__order_id__items__item_id__status_patch",
         "parameters": [
           {
             "name": "order_id",
@@ -912,6 +982,19 @@
             "type": "array",
             "title": "Status History",
             "default": []
+          },
+          "aggregated_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Aggregated Status",
+            "description": "Compute aggregated logistic status from items.\n\nReturns None if no items exist. Otherwise returns the most restrictive state:\n- If any item is EN_PREPARACION \u2192 EN_PREPARACION\n- If any item is ENVIADO \u2192 ENVIADA\n- If all are ENTREGADA \u2192 ENTREGADA\n- If all are CANCELADA \u2192 CANCELADA",
+            "readOnly": true
           }
         },
         "type": "object",
@@ -922,7 +1005,8 @@
           "shipping_address",
           "total_amount",
           "created_at",
-          "updated_at"
+          "updated_at",
+          "aggregated_status"
         ],
         "title": "OrderResponse",
         "description": "Full order detail returned by ``GET /orders/{id}``"

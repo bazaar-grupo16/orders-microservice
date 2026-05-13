@@ -139,7 +139,7 @@ def list_orders(
 
 
 @router.post(
-    "/{order_id}/{item_id}/confirm-delivery",
+    "/{order_id}/items/{item_id}/confirm-delivery",
     response_model=OrderResponse,
     status_code=status.HTTP_200_OK,
     summary="Confirm delivery for a specific item by the buyer",
@@ -280,7 +280,7 @@ def get_seller_order(
 
 
 @router.patch(
-    "/sales/{order_id}/{item_id}/status",
+    "/sales/{order_id}/items/{item_id}/status",
     response_model=OrderResponse,
     status_code=status.HTTP_200_OK,
     summary="Update item logistic status (Seller)",

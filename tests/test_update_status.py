@@ -116,7 +116,7 @@ class TestUpdateOrderStatus:
 
 
 class TestUpdateItemStatus:
-    """Tests for ``PATCH /orders/sales/{order_id}/{item_id}/status``."""
+    """Tests for ``PATCH /orders/sales/{order_id}/items/{item_id}/status``."""
 
     def _confirm_order(self, client: TestClient, order_id: uuid.UUID) -> None:
         response = client.patch(
@@ -153,7 +153,7 @@ class TestUpdateItemStatus:
         self._confirm_order(client, order.id)
 
         response = client.patch(
-            f"/orders/sales/{order.id}/{item_id}/status",
+            f"/orders/sales/{order.id}/items/{item_id}/status",
             json={"status": OrderStatus.EN_PREPARACION},
             headers={"X-User-Id": str(seller)},
         )
@@ -192,7 +192,7 @@ class TestUpdateItemStatus:
 
         tracking = "TRACK-98765"
         response = client.patch(
-            f"/orders/sales/{order.id}/{item_id}/status",
+            f"/orders/sales/{order.id}/items/{item_id}/status",
             json={
                 "status": OrderStatus.EN_PREPARACION,
                 "tracking_code": tracking,
@@ -235,7 +235,7 @@ class TestUpdateItemStatus:
         self._confirm_order(client, order.id)
 
         response = client.patch(
-            f"/orders/sales/{order.id}/{item_id}/status",
+            f"/orders/sales/{order.id}/items/{item_id}/status",
             json={"status": OrderStatus.EN_PREPARACION},
             headers={"X-User-Id": str(seller_b)},
         )
@@ -272,7 +272,7 @@ class TestUpdateItemStatus:
 
         # EN_PREPARACION -> ENTREGADA is not a valid transition
         response = client.patch(
-            f"/orders/sales/{order.id}/{item_id}/status",
+            f"/orders/sales/{order.id}/items/{item_id}/status",
             json={"status": OrderStatus.PENDIENTE_DE_PAGO},
             headers={"X-User-Id": str(seller)},
         )
@@ -308,7 +308,7 @@ class TestUpdateItemStatus:
         self._confirm_order(client, order.id)
 
         response = client.patch(
-            f"/orders/sales/{order.id}/{fake_item_id}/status",
+            f"/orders/sales/{order.id}/items/{fake_item_id}/status",
             json={"status": OrderStatus.EN_PREPARACION},
             headers={"X-User-Id": str(seller)},
         )
@@ -351,7 +351,7 @@ class TestConfirmDelivery:
 
         item_id = order.items[0].id
         response = client.post(
-            f"/orders/{order.id}/{item_id}/confirm-delivery",
+            f"/orders/{order.id}/items/{item_id}/confirm-delivery",
             headers={"X-User-Id": str(buyer)},
         )
 
@@ -389,7 +389,7 @@ class TestConfirmDelivery:
 
         fake_item = order.items[0].id
         response = client.post(
-            f"/orders/{order.id}/{fake_item}/confirm-delivery",
+            f"/orders/{order.id}/items/{fake_item}/confirm-delivery",
             headers={"X-User-Id": str(buyer)},
         )
 
@@ -428,7 +428,7 @@ class TestConfirmDelivery:
 
         item_id = order.items[0].id
         response = client.post(
-            f"/orders/{order.id}/{item_id}/confirm-delivery",
+            f"/orders/{order.id}/items/{item_id}/confirm-delivery",
             headers={"X-User-Id": str(other_user)},
         )
 
