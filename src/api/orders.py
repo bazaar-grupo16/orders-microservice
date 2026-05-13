@@ -187,6 +187,97 @@ def list_sales(
     )
 
 
+@router.get(
+    "/sales/{order_id}",
+    response_model=OrderResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Get a specific order for seller",
+)
+def get_seller_order(
+    order_id: UUID,
+    db: DbSession,
+    user_id: CurrentUserId,
+) -> OrderResponse:
+    """Retrieve a single order by ID, showing only items sold by the user.
+    
+    Validates that the order contains at least one item sold by the user.
+    """
+    order = order_service.get_order_for_seller(
+        db,
+        order_id=order_id,
+        seller_id=user_id,
+    )
+    
+    # Filter to seller's items only
+    seller_items = [item for item in order.items if item.seller_id == user_id]
+    
+    order_dict = order.__dict__.copy()
+    order_dict["order_id"] = order.id
+    order_dict["items"] = seller_items
+    order_dict["total_amount"] = sum(item.unit_price * item.quantity for item in seller_items)
+    return OrderResponse.model_validate(order_dict)
+
+
+@router.patch(
+    "/sales/{order_id}/{item_id}/status",
+    response_model=OrderResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Update item logistic status (Seller)",
+)
+def update_item_status(
+    order_id: UUID,
+    item_id: UUID,
+    body: UpdateStatusRequest,
+    db: DbSession,
+    user_id: CurrentUserId,
+) -> OrderResponse:
+    """Update the logistic status of an order item.
+    
+    Only sellers can update items they sold. The transition is validated
+    against the item logistic state machine.
+    """
+    # Verify the order exists and seller has access
+    order = order_service.get_order_for_seller(
+        db,
+        order_id=order_id,
+        seller_id=user_id,
+    )
+    
+    # Verify the item belongs to this order and this seller
+    item = next((i for i in order.items if i.id == item_id), None)
+    if item is None or item.seller_id != user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Item not found or not owned by seller",
+        )
+    
+    # Update the item status
+    order_service.update_item_status(
+        db,
+        item_id=item_id,
+        new_status=body.status,
+        tracking_code=body.tracking_code,
+    )
+    
+    # Refresh and return updated order
+    order = order_service.get_order_for_seller(
+        db,
+        order_id=order_id,
+        seller_id=user_id,
+    )
+    
+    order_dict = order.__dict__.copy()
+    order_dict["order_id"] = order.id
+    order_dict["items"] = [i for i in order.items if i.seller_id == user_id]
+    
+    logger.debug(
+        "Item status updated: order=%s item=%s new_status=%s seller=%s",
+        order_id, item_id, body.status, user_id,
+    )
+    
+    return OrderResponse.model_validate(order_dict)
+
+
 
 @router.get(
     "/{order_id}",

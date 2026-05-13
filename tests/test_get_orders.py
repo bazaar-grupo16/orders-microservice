@@ -236,3 +236,76 @@ class TestListOrders:
         data = response.json()
         assert data["total"] == 0
         assert data["orders"] == []
+
+
+class TestGetSellerOrder:
+    """Tests for ``GET /orders/sales/{order_id}``."""
+
+    def test_seller_can_get_order_with_their_items(
+        self, client: TestClient, db_session: Session
+    ) -> None:
+        buyer = uuid.uuid4()
+        seller = uuid.uuid4()
+
+        order = _create_db_order(db_session, buyer, seller_id=seller)
+
+        response = client.get(
+            f"/orders/sales/{order.id}",
+            headers={"X-User-Id": str(seller)},
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["order_id"] == str(order.id)
+        assert len(data["items"]) == 1
+        assert data["items"][0]["seller_id"] == str(seller)
+        assert "status" in data["items"][0]  # Verify logistic status is present
+        assert "tracking_code" in data["items"][0]
+
+    def test_seller_cannot_get_order_without_their_items(
+        self, client: TestClient, db_session: Session
+    ) -> None:
+        buyer = uuid.uuid4()
+        seller_a = uuid.uuid4()
+        seller_b = uuid.uuid4()
+
+        order = _create_db_order(db_session, buyer, seller_id=seller_a)
+
+        response = client.get(
+            f"/orders/sales/{order.id}",
+            headers={"X-User-Id": str(seller_b)},
+        )
+
+        assert response.status_code == 403
+        assert "Access denied" in response.json()["detail"]
+
+    def test_seller_sees_only_their_items(
+        self, client: TestClient, db_session: Session
+    ) -> None:
+        buyer = uuid.uuid4()
+        seller_a = uuid.uuid4()
+        seller_b = uuid.uuid4()
+
+        # Create order with items from both sellers
+        order = order_repository.create_order(
+            db_session,
+            user_id=buyer,
+            idempotency_key=str(uuid.uuid4()),
+            shipping_address=_VALID_ADDRESS,
+            total_amount=3000.0,
+            status=OrderStatus.CONFIRMADA,
+            items=[
+                {"product_id": uuid.uuid4(), "seller_id": seller_a, "product_name": "A", "quantity": 1, "unit_price": 1000.0},
+                {"product_id": uuid.uuid4(), "seller_id": seller_b, "product_name": "B", "quantity": 1, "unit_price": 2000.0},
+            ],
+        )
+
+        response = client.get(
+            f"/orders/sales/{order.id}",
+            headers={"X-User-Id": str(seller_a)},
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data["items"]) == 1
+        assert data["items"][0]["seller_id"] == str(seller_a)

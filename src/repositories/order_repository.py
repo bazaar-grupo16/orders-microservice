@@ -148,6 +148,30 @@ def update_tracking_code(db: Session, order: Order, tracking_code: str) -> Order
     return order
 
 
+def get_item_by_id(db: Session, item_id: uuid.UUID) -> OrderItem | None:
+    """Return an order item by primary key, or ``None`` if not found."""
+    return db.get(OrderItem, item_id)
+
+
+def update_item_status(db: Session, item: OrderItem, new_status: str, tracking_code: str | None = None) -> OrderItem:
+    """Update the item's logistic status and optionally set tracking code."""
+    item.status = new_status
+    if tracking_code is not None:
+        item.tracking_code = tracking_code
+    db.commit()
+    db.refresh(item)
+    return item
+
+
+def get_items_by_order_and_seller(db: Session, order_id: uuid.UUID, seller_id: uuid.UUID) -> Sequence[OrderItem]:
+    """Return all items from a given order sold by a specific seller."""
+    return (
+        db.query(OrderItem)
+        .filter(OrderItem.order_id == order_id, OrderItem.seller_id == seller_id)
+        .all()
+    )
+
+
 def update_payment_preference(
     db: Session,
     order: Order,

@@ -40,6 +40,10 @@ class OrderItemResponse(BaseModel):
     product_name: str
     quantity: int
     unit_price: float
+    status: str
+    tracking_code: str | None = None
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
 
 
 class OrderResponse(BaseModel):

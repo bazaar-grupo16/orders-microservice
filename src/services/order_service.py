@@ -19,8 +19,9 @@ from src.exceptions import (
     PaymentsServiceError,
 )
 from src.models.order import Order
-from src.models.order_status import OrderStatus
-from src.models.state_machine import validate_transition
+from src.models.order_item import OrderItem
+from src.models.order_status import OrderItemLogisticStatus, OrderStatus
+from src.models.state_machine import validate_item_transition, validate_transition
 from src.repositories import order_repository
 from src.schemas.webhook import PaymentStatus
 
@@ -311,6 +312,36 @@ def get_order(
     return order
 
 
+def get_order_for_seller(
+    db: Session,
+    *,
+    order_id: uuid.UUID,
+    seller_id: uuid.UUID,
+) -> Order:
+    """Retrieve an order for a seller who has items in it.
+    
+    Does not validate that seller_id is the order owner, only that
+    they have at least one item in the order.
+
+    Raises
+    ------
+    OrderNotFoundError
+        If the order does not exist.
+    OrderAccessDeniedError
+        If the seller has no items in the order.
+    """
+    order = order_repository.get_by_id(db, order_id)
+    if order is None:
+        raise OrderNotFoundError(str(order_id))
+    
+    # Verify seller has items in this order
+    has_items = any(item.seller_id == seller_id for item in order.items)
+    if not has_items:
+        raise OrderAccessDeniedError()
+    
+    return order
+
+
 def list_orders(
     db: Session,
     *,
@@ -402,9 +433,72 @@ def update_order_status(
     # Apply status update
     order = order_repository.update_status(db, order, OrderStatus(new_status))
     
+    _propagate_status_to_items(db, order, new_status)
+    
     logger.info(
         "Order status updated: order=%s old_status=%s new_status=%s",
         order.id, order.status, new_status,
     )
     
     return order
+
+
+def update_item_status(
+    db: Session,
+    *,
+    item_id: uuid.UUID,
+    new_status: str,
+    tracking_code: str | None = None,
+) -> OrderItem:
+    """Update an order item's logistic status and optionally set tracking code.
+    
+    Parameters
+    ----------
+    item_id:
+        UUID of the order item.
+    new_status:
+        New logistic status for the item.
+    tracking_code:
+        Optional tracking code to set on the item.
+    
+    Raises
+    ------
+    Exception
+        If the item does not exist or transition is invalid.
+    """
+    item = order_repository.get_item_by_id(db, item_id)
+    if item is None:
+        raise OrderNotFoundError(f"OrderItem {item_id} not found")
+
+    # Validate transition using item-specific state machine
+    current_status = OrderItemLogisticStatus(item.status)
+    target_status = OrderItemLogisticStatus(new_status)
+    validate_item_transition(current_status, target_status)
+
+    # Apply update
+    item = order_repository.update_item_status(
+        db, item, new_status, tracking_code=tracking_code
+    )
+    
+    logger.debug(
+        "Item status updated: item=%s old_status=%s new_status=%s tracking=%s",
+        item.id, current_status, target_status, tracking_code is not None,
+    )
+    
+    return item
+
+def _propagate_status_to_items(
+    db: Session,
+    order: Order,
+    new_status: str,
+):
+    if OrderStatus(new_status) == OrderStatus.CONFIRMADA:
+        for item in order.items:
+            order_repository.update_item_status(
+                db, item, OrderItemLogisticStatus.CONFIRMADO.value
+            )
+    if OrderStatus(new_status) == OrderStatus.PAGO_RECHAZADO:
+        for item in order.items:
+            order_repository.update_item_status(
+                db, item, OrderItemLogisticStatus.CANCELADO.value
+            )
