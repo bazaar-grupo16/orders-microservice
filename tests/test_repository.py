@@ -217,14 +217,20 @@ class TestUpdateStatus:
 
 
 class TestUpdateTrackingCode:
-    """Tests for ``order_repository.update_tracking_code``."""
+    """Tests for ``order_repository.update_tracking_code`` (deprecated - tracking moved to OrderItem)."""
 
-    def test_sets_tracking_code(self, db_session: Session) -> None:
+    def test_sets_tracking_code_on_order(self, db_session: Session) -> None:
+        """Tracking code is now per-item, but order still has old field for migrations."""
+        from src.models.order_status import OrderItemLogisticStatus
         order = _create_test_order(db_session)
-        assert order.tracking_code is None
-
-        updated = order_repository.update_tracking_code(
-            db_session, order, "TRACK-12345-AR",
+        
+        # Verify order item has tracking_code (per-item now)
+        item = order.items[0]
+        assert item.tracking_code is None
+        
+        updated_item = order_repository.update_item_status(
+            db_session, item, OrderItemLogisticStatus.ENVIADO, tracking_code="TRACK-12345-AR"
         )
-
-        assert updated.tracking_code == "TRACK-12345-AR"
+        
+        assert updated_item.tracking_code == "TRACK-12345-AR"
+        assert updated_item.status == OrderItemLogisticStatus.ENVIADO

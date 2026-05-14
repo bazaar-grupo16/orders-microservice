@@ -25,8 +25,13 @@ class OrderAccessDeniedError(Exception):
 class InsufficientStockError(Exception):
     """Raised when the Inventory service reports insufficient stock (409)."""
 
-    def __init__(self, detail: str = "Insufficient stock to complete the order") -> None:
+    def __init__(
+        self,
+        detail: str = "Insufficient stock to complete the order",
+        items: list[dict] | None = None,
+    ) -> None:
         self.detail = detail
+        self.items = items or []
         super().__init__(detail)
 
 

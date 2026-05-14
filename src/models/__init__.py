@@ -2,6 +2,7 @@
 
 from src.models.order import Order
 from src.models.order_item import OrderItem
+from src.models.order_status_history import OrderStatusHistory
 from src.models.order_status import OrderStatus
 from src.models.state_machine import (
     VALID_TRANSITIONS,
@@ -12,6 +13,7 @@ from src.models.state_machine import (
 __all__ = [
     "Order",
     "OrderItem",
+    "OrderStatusHistory",
     "OrderStatus",
     "VALID_TRANSITIONS",
     "InvalidStateTransitionError",

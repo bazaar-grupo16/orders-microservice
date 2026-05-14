@@ -99,6 +99,57 @@ class TestGetOrder:
         assert response.status_code == 404
         assert response.json()["title"] == "Order Not Found"
 
+    def test_includes_persisted_status_history_with_timestamps(
+        self, client: TestClient, db_session: Session
+    ) -> None:
+        user_id = uuid.uuid4()
+        order = _create_db_order(db_session, user_id)
+        item = order.items[0]
+
+        order_repository.record_status_change(
+            db_session,
+            order_id=order.id,
+            item_id=None,
+            previous_status=None,
+            new_status=OrderStatus.PENDIENTE_DE_PAGO,
+            origin="system",
+        )
+        order_repository.record_status_change(
+            db_session,
+            order_id=order.id,
+            item_id=item.id,
+            previous_status="PENDIENTE_DE_PAGO",
+            new_status="CONFIRMADO",
+            origin="webhook",
+        )
+
+        first_response = client.get(
+            f"/orders/{order.id}",
+            headers={"X-User-Id": str(user_id)},
+        )
+        second_response = client.get(
+            f"/orders/{order.id}",
+            headers={"X-User-Id": str(user_id)},
+        )
+
+        assert first_response.status_code == 200
+        assert second_response.status_code == 200
+
+        first_data = first_response.json()
+        second_data = second_response.json()
+
+        assert len(first_data["status_history"]) == 2
+        assert first_data["status_history"] == second_data["status_history"]
+
+        first_ts = first_data["status_history"][0]["timestamp"]
+        second_ts = first_data["status_history"][1]["timestamp"]
+        assert first_ts <= second_ts
+        assert first_data["status_history"][0]["origin"] == "system"
+        assert first_data["status_history"][1]["origin"] == "webhook"
+
+        assert len(first_data["items"][0]["status_history"]) == 1
+        assert first_data["items"][0]["status_history"][0]["new_status"] == "CONFIRMADO"
+
 
 class TestListOrders:
     """Tests for ``GET /orders``."""
@@ -236,3 +287,139 @@ class TestListOrders:
         data = response.json()
         assert data["total"] == 0
         assert data["orders"] == []
+
+
+class TestGetSellerOrder:
+    """Tests for ``GET /orders/sales/{order_id}``."""
+
+    def test_seller_can_get_order_with_their_items(
+        self, client: TestClient, db_session: Session
+    ) -> None:
+        buyer = uuid.uuid4()
+        seller = uuid.uuid4()
+
+        order = _create_db_order(db_session, buyer, seller_id=seller)
+
+        response = client.get(
+            f"/orders/sales/{order.id}",
+            headers={"X-User-Id": str(seller)},
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["order_id"] == str(order.id)
+        assert len(data["items"]) == 1
+        assert data["items"][0]["seller_id"] == str(seller)
+        assert "status" in data["items"][0]  # Verify logistic status is present
+        assert "tracking_code" in data["items"][0]
+
+    def test_seller_cannot_get_order_without_their_items(
+        self, client: TestClient, db_session: Session
+    ) -> None:
+        buyer = uuid.uuid4()
+        seller_a = uuid.uuid4()
+        seller_b = uuid.uuid4()
+
+        order = _create_db_order(db_session, buyer, seller_id=seller_a)
+
+        response = client.get(
+            f"/orders/sales/{order.id}",
+            headers={"X-User-Id": str(seller_b)},
+        )
+
+        assert response.status_code == 403
+        assert "Access denied" in response.json()["detail"]
+
+    def test_seller_sees_only_their_items(
+        self, client: TestClient, db_session: Session
+    ) -> None:
+        buyer = uuid.uuid4()
+        seller_a = uuid.uuid4()
+        seller_b = uuid.uuid4()
+
+        # Create order with items from both sellers
+        order = order_repository.create_order(
+            db_session,
+            user_id=buyer,
+            idempotency_key=str(uuid.uuid4()),
+            shipping_address=_VALID_ADDRESS,
+            total_amount=3000.0,
+            status=OrderStatus.CONFIRMADA,
+            items=[
+                {"product_id": uuid.uuid4(), "seller_id": seller_a, "product_name": "A", "quantity": 1, "unit_price": 1000.0},
+                {"product_id": uuid.uuid4(), "seller_id": seller_b, "product_name": "B", "quantity": 1, "unit_price": 2000.0},
+            ],
+        )
+
+        response = client.get(
+            f"/orders/sales/{order.id}",
+            headers={"X-User-Id": str(seller_a)},
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data["items"]) == 1
+        assert data["items"][0]["seller_id"] == str(seller_a)
+
+    def test_seller_history_includes_only_their_item_events(
+        self, client: TestClient, db_session: Session
+    ) -> None:
+        buyer = uuid.uuid4()
+        seller_a = uuid.uuid4()
+        seller_b = uuid.uuid4()
+
+        order = order_repository.create_order(
+            db_session,
+            user_id=buyer,
+            idempotency_key=str(uuid.uuid4()),
+            shipping_address=_VALID_ADDRESS,
+            total_amount=3000.0,
+            status=OrderStatus.CONFIRMADA,
+            items=[
+                {"product_id": uuid.uuid4(), "seller_id": seller_a, "product_name": "A", "quantity": 1, "unit_price": 1000.0},
+                {"product_id": uuid.uuid4(), "seller_id": seller_b, "product_name": "B", "quantity": 1, "unit_price": 2000.0},
+            ],
+        )
+
+        item_a = next(item for item in order.items if item.seller_id == seller_a)
+        item_b = next(item for item in order.items if item.seller_id == seller_b)
+
+        order_repository.record_status_change(
+            db_session,
+            order_id=order.id,
+            item_id=None,
+            previous_status="PENDIENTE_DE_PAGO",
+            new_status="CONFIRMADA",
+            origin="webhook",
+        )
+        order_repository.record_status_change(
+            db_session,
+            order_id=order.id,
+            item_id=item_a.id,
+            previous_status="CONFIRMADO",
+            new_status="EN_PREPARACION",
+            origin="seller",
+        )
+        order_repository.record_status_change(
+            db_session,
+            order_id=order.id,
+            item_id=item_b.id,
+            previous_status="CONFIRMADO",
+            new_status="EN_PREPARACION",
+            origin="seller",
+        )
+
+        response = client.get(
+            f"/orders/sales/{order.id}",
+            headers={"X-User-Id": str(seller_a)},
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data["status_history"]) == 1
+        assert data["status_history"][0]["item_id"] == str(item_a.id)
+        assert data["status_history"][0]["new_status"] == "EN_PREPARACION"
+
+        assert len(data["items"]) == 1
+        assert len(data["items"][0]["status_history"]) == 1
+        assert data["items"][0]["status_history"][0]["item_id"] == str(item_a.id)

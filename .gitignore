@@ -181,5 +181,6 @@ $RECYCLE.BIN/
 *.orig
 *.patch
 .agents/
+.github/agents/
 .plan.md
 node_modules/

@@ -64,7 +64,15 @@ def register_error_handlers(app: FastAPI) -> None:
     async def _insufficient_stock(
         _request: Request, exc: InsufficientStockError,
     ) -> JSONResponse:
-        return _problem(409, "Insufficient Stock", exc.detail)
+        content = {
+            "type": "about:blank",
+            "title": "Insufficient Stock",
+            "status": 409,
+            "detail": exc.detail,
+        }
+        if exc.items:
+            content["items"] = exc.items
+        return JSONResponse(status_code=409, content=content, media_type=_PROBLEM_JSON)
 
     @app.exception_handler(CartEmptyError)
     async def _cart_empty(

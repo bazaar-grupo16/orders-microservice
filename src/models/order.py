@@ -4,6 +4,11 @@ SQLAlchemy model for the ``orders`` table.
 Each row represents a single purchase transaction.  The ``idempotency_key``
 column carries a UNIQUE constraint so the database itself rejects duplicate
 checkout attempts — defence-in-depth beyond the application-level check.
+
+The Order holds the FINANCIAL state (payment tracking). Logistic state
+(shipping, delivery) is tracked per-item in OrderItem.status.
+The `status` column in Order represents the consolidated financial state,
+not the logistic state. The logistic state is derived from items.
 """
 
 import uuid
@@ -17,7 +22,11 @@ from src.models.order_status import OrderStatus
 
 
 class Order(Base):
-    """Persistent order aggregate root."""
+    """Persistent order aggregate root.
+    
+    Holds financial state (payment tracking) and coordinates multi-vendor logistics.
+    Logistic state is aggregated from OrderItem.status values.
+    """
 
     __tablename__ = "orders"
 
@@ -41,11 +50,6 @@ class Order(Base):
     # ── Idempotency ───────────────────────────────────
     idempotency_key: Mapped[str] = mapped_column(
         String(36), unique=True, nullable=False, index=True,
-    )
-
-    # ── Optional tracking ─────────────────────────────
-    tracking_code: Mapped[str | None] = mapped_column(
-        String(100), nullable=True, default=None,
     )
 
     # ── Payment preference (populated after Payments service call) ───

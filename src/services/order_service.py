@@ -19,10 +19,11 @@ from src.exceptions import (
     PaymentsServiceError,
 )
 from src.models.order import Order
-from src.models.order_status import OrderStatus
-from src.models.state_machine import validate_transition
+from src.models.order_item import OrderItem
+from src.models.order_status import OrderItemLogisticStatus, OrderStatus
+from src.models.state_machine import validate_item_transition, validate_transition
 from src.repositories import order_repository
-from src.schemas.webhook import PaymentStatus
+from src.schemas.webhook import PaymentStatus, payment_status_to_order_status
 
 logger = logging.getLogger(__name__)
 
@@ -89,6 +90,14 @@ def create_order(
     try:
         inventory_client.reserve_stock(reserve_payload)
     except InsufficientStockError:
+        product_ids = [str(item["product_id"]) for item in cart_items]
+        stock_levels = _get_stock_levels(product_ids)
+        insufficient_items = _build_insufficient_stock_items(cart_items, stock_levels)
+        if insufficient_items:
+            raise InsufficientStockError(
+                "Insufficient stock for one or more cart items",
+                items=insufficient_items,
+            )
         raise  # Propagate — no compensation needed (nothing reserved yet).
 
     # ── Step 4: Persist order ─────────────────────────
@@ -117,6 +126,14 @@ def create_order(
             status=OrderStatus.PENDIENTE_DE_PAGO,
             items=order_items,
         )
+        order_repository.record_status_change(
+            db,
+            order_id=order.id,
+            item_id=None,
+            previous_status=None,
+            new_status=OrderStatus.PENDIENTE_DE_PAGO.value,
+            origin="system",
+        )
     except Exception:
         # Compensation: rollback the stock reservation if DB fails.
         logger.error(
@@ -134,14 +151,15 @@ def create_order(
 
     # ── Step 5: Create payment preference ─────────────
     # Build items in the shape expected by the Payments service
-    # (PreferenceRequest.items: title, quantity, unit_price).
+    # (PreferenceRequest.items: title, quantity, unit_price, line_item_id).
     preference_items = [
         {
-            "title": item["product_name"],
-            "quantity": item["quantity"],
-            "unit_price": item["unit_price"],
+            "title": str(item.product_name),
+            "quantity": str(item.quantity),
+            "unit_price": str(item.unit_price),
+            "line_item_id": str(item.id),
         }
-        for item in cart_items
+        for item in order.items
     ]
 
     try:
@@ -231,23 +249,36 @@ def resolve_payment(
     if order is None:
         raise OrderNotFoundError(str(order_id))
 
-    if payment_status == PaymentStatus.SUCCESS:
-        target_status = OrderStatus.CONFIRMADA
-    else:
-        target_status = OrderStatus.PAGO_RECHAZADO
+    target_status = payment_status_to_order_status(payment_status)
+    if target_status is None:
+        logger.error(
+            "Ignoring unknown payment status: order=%s status=%s tx=%s",
+            order_id, payment_status, transaction_id,
+        )
+        return order
 
     # Validate state machine transition.
     validate_transition(OrderStatus(order.status), target_status)
 
+    previous_status = order.status
+
     # Update order status.
     order = order_repository.update_status(db, order, target_status)
+    order_repository.record_status_change(
+        db,
+        order_id=order.id,
+        item_id=None,
+        previous_status=previous_status,
+        new_status=target_status.value,
+        origin="webhook",
+    )
     logger.info(
         "Payment resolved: order=%s status=%s tx=%s",
         order_id, target_status, transaction_id,
     )
 
     # ── Post-resolution side effects ──────────────────
-    if payment_status == PaymentStatus.SUCCESS:
+    if payment_status == PaymentStatus.APPROVED:
         _on_payment_success(order)
     else:
         _on_payment_failed(order)
@@ -288,6 +319,37 @@ def _on_payment_failed(order: Order) -> None:
         )
 
 
+def _get_stock_levels(product_ids: list[str]) -> dict[str, int] | None:
+    try:
+        return inventory_client.get_stock_levels(product_ids)
+    except Exception:
+        return None
+
+
+def _build_insufficient_stock_items(
+    cart_items: list[dict],
+    stock_levels: dict[str, int] | None,
+) -> list[dict]:
+    if stock_levels is None:
+        return []
+
+    insufficient_items: list[dict] = []
+    for item in cart_items:
+        product_id = str(item["product_id"])
+        requested = int(item["quantity"])
+        available = int(stock_levels.get(product_id, 0))
+        if available < requested:
+            insufficient_items.append(
+                {
+                    "product_id": product_id,
+                    "product_name": item.get("product_name"),
+                    "requested": requested,
+                    "available": available,
+                }
+            )
+    return insufficient_items
+
+
 def get_order(
     db: Session,
     *,
@@ -308,6 +370,36 @@ def get_order(
         raise OrderNotFoundError(str(order_id))
     if order.user_id != user_id:
         raise OrderAccessDeniedError()
+    return order
+
+
+def get_order_for_seller(
+    db: Session,
+    *,
+    order_id: uuid.UUID,
+    seller_id: uuid.UUID,
+) -> Order:
+    """Retrieve an order for a seller who has items in it.
+    
+    Does not validate that seller_id is the order owner, only that
+    they have at least one item in the order.
+
+    Raises
+    ------
+    OrderNotFoundError
+        If the order does not exist.
+    OrderAccessDeniedError
+        If the seller has no items in the order.
+    """
+    order = order_repository.get_by_id(db, order_id)
+    if order is None:
+        raise OrderNotFoundError(str(order_id))
+    
+    # Verify seller has items in this order
+    has_items = any(item.seller_id == seller_id for item in order.items)
+    if not has_items:
+        raise OrderAccessDeniedError()
+    
     return order
 
 
@@ -392,15 +484,29 @@ def update_order_status(
     if order is None:
         raise OrderNotFoundError(str(order_id))
 
+    current_status = OrderStatus(order.status)
+    target_status = OrderStatus(new_status)
+
     # Validate transition
-    validate_transition(OrderStatus(order.status), OrderStatus(new_status))
+    validate_transition(current_status, target_status)
 
     # Apply tracking code if provided
     if tracking_code is not None:
         order = order_repository.update_tracking_code(db, order, tracking_code)
 
     # Apply status update
-    order = order_repository.update_status(db, order, OrderStatus(new_status))
+    order = order_repository.update_status(db, order, target_status)
+    order_repository.record_status_change(
+        db,
+        order_id=order.id,
+        item_id=None,
+        previous_status=current_status.value,
+        new_status=target_status.value,
+        origin="seller",
+        tracking_code=tracking_code,
+    )
+
+    _propagate_status_to_items(db, order, target_status.value, origin="seller")
     
     logger.info(
         "Order status updated: order=%s old_status=%s new_status=%s",
@@ -408,3 +514,158 @@ def update_order_status(
     )
     
     return order
+
+
+def update_item_status(
+    db: Session,
+    *,
+    item_id: uuid.UUID,
+    new_status: str,
+    tracking_code: str | None = None,
+) -> OrderItem:
+    """Update an order item's logistic status and optionally set tracking code.
+    
+    Parameters
+    ----------
+    item_id:
+        UUID of the order item.
+    new_status:
+        New logistic status for the item.
+    tracking_code:
+        Optional tracking code to set on the item.
+    
+    Raises
+    ------
+    Exception
+        If the item does not exist or transition is invalid.
+    """
+    item = order_repository.get_item_by_id(db, item_id)
+    if item is None:
+        raise OrderNotFoundError(f"OrderItem {item_id} not found")
+
+    # Validate transition using item-specific state machine
+    current_status = OrderItemLogisticStatus(item.status)
+    target_status = OrderItemLogisticStatus(new_status)
+    validate_item_transition(current_status, target_status)
+
+    # Apply update
+    item = order_repository.update_item_status(
+        db, item, new_status, tracking_code=tracking_code
+    )
+    order_repository.record_status_change(
+        db,
+        order_id=item.order_id,
+        item_id=item.id,
+        previous_status=current_status.value,
+        new_status=target_status.value,
+        origin="seller",
+        tracking_code=tracking_code,
+    )
+    
+    logger.debug(
+        "Item status updated: item=%s old_status=%s new_status=%s tracking=%s",
+        item.id, current_status, target_status, tracking_code is not None,
+    )
+    
+    return item
+
+def confirm_item_delivery(
+    db: Session,
+    *,
+    order_id: uuid.UUID,
+    item_id: uuid.UUID,
+    user_id: uuid.UUID,
+) -> Order:
+    """Confirm delivery for a single order item by the buyer.
+
+    Validates ownership and that the item is in ``ENVIADO`` before
+    transitioning it to ``ENTREGADO`` and recording a history event
+    with origin "buyer".
+    """
+    order = order_repository.get_by_id(db, order_id)
+    if order is None:
+        raise OrderNotFoundError(str(order_id))
+    if order.user_id != user_id:
+        raise OrderAccessDeniedError()
+
+    item = order_repository.get_item_by_id(db, item_id)
+    if item is None or item.order_id != order_id:
+        raise OrderNotFoundError(f"OrderItem {item_id} not found for order {order_id}")
+
+    current_status = OrderItemLogisticStatus(item.status)
+    target_status = OrderItemLogisticStatus.ENTREGADO
+
+    # Only allow transition ENVIADO -> ENTREGADO
+    validate_item_transition(current_status, target_status)
+
+    # Apply update
+    order_repository.update_item_status(
+        db,
+        item,
+        target_status.value,
+    )
+    order_repository.record_status_change(
+        db,
+        order_id=order.id,
+        item_id=item.id,
+        previous_status=current_status.value,
+        new_status=target_status.value,
+        origin="buyer",
+    )
+
+    logger.info("Item delivery confirmed: order=%s buyer=%s item=%s", order.id, user_id, item.id)
+    # Return fresh order state
+    return order_repository.get_by_id(db, order_id)
+
+def _propagate_status_to_items(
+    db: Session,
+    order: Order,
+    new_status: str,
+    origin: str,
+):
+    if OrderStatus(new_status) == OrderStatus.CONFIRMADA:
+        for item in order.items:
+            previous_status = item.status
+            order_repository.update_item_status(
+                db, item, OrderItemLogisticStatus.CONFIRMADO.value
+            )
+            order_repository.record_status_change(
+                db,
+                order_id=order.id,
+                item_id=item.id,
+                previous_status=previous_status,
+                new_status=OrderItemLogisticStatus.CONFIRMADO.value,
+                origin=origin,
+            )
+    if OrderStatus(new_status) == OrderStatus.PAGO_RECHAZADO:
+        for item in order.items:
+            previous_status = item.status
+            order_repository.update_item_status(
+                db, item, OrderItemLogisticStatus.CANCELADO.value
+            )
+            order_repository.record_status_change(
+                db,
+                order_id=order.id,
+                item_id=item.id,
+                previous_status=previous_status,
+                new_status=OrderItemLogisticStatus.CANCELADO.value,
+                origin=origin,
+            )
+
+
+def get_status_history(
+    db: Session,
+    *,
+    order_id: uuid.UUID,
+    seller_id: uuid.UUID | None = None,
+) -> list:
+    """Return status transition history for an order.
+
+    If ``seller_id`` is provided, only item events for that seller are returned.
+    """
+    history = order_repository.get_status_history(
+        db,
+        order_id=order_id,
+        seller_id=seller_id,
+    )
+    return list(history)

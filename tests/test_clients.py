@@ -152,11 +152,8 @@ class TestReserveStock:
             {"product_id": p2, "quantity": 1},
         ]
         
-        respx.post(f"http://inventory-service:8000/internal/products/{p1}/stock/reserve").mock(
-            return_value=httpx.Response(200, json={"stock": 10}),
-        )
-        respx.post(f"http://inventory-service:8000/internal/products/{p2}/stock/reserve").mock(
-            return_value=httpx.Response(200, json={"stock": 5}),
+        respx.post("http://inventory-service:8000/internal/products/stock/reserve").mock(
+            return_value=httpx.Response(200, json={"data": []}),
         )
 
         inventory_client.reserve_stock(items)
@@ -165,10 +162,8 @@ class TestReserveStock:
     def test_raises_insufficient_stock_on_409(self) -> None:
         p1 = str(uuid.uuid4())
         items = [{"product_id": p1, "quantity": 999}]
-        respx.post(f"http://inventory-service:8000/internal/products/{p1}/stock/reserve").mock(
-            return_value=httpx.Response(
-                409, json={"detail": "Not enough stock for product X"},
-            ),
+        respx.post("http://inventory-service:8000/internal/products/stock/reserve").mock(
+            return_value=httpx.Response(409, json={"detail": "Not enough stock for product X"}),
         )
 
         with pytest.raises(InsufficientStockError) as exc_info:
@@ -179,7 +174,7 @@ class TestReserveStock:
     def test_raises_external_error_on_500(self) -> None:
         p1 = str(uuid.uuid4())
         items = [{"product_id": p1, "quantity": 1}]
-        respx.post(f"http://inventory-service:8000/internal/products/{p1}/stock/reserve").mock(
+        respx.post("http://inventory-service:8000/internal/products/stock/reserve").mock(
             return_value=httpx.Response(500),
         )
 
@@ -190,7 +185,7 @@ class TestReserveStock:
     def test_raises_external_error_on_timeout(self) -> None:
         p1 = str(uuid.uuid4())
         items = [{"product_id": p1, "quantity": 1}]
-        respx.post(f"http://inventory-service:8000/internal/products/{p1}/stock/reserve").mock(
+        respx.post("http://inventory-service:8000/internal/products/stock/reserve").mock(
             side_effect=httpx.ConnectTimeout("Timeout"),
         )
 
@@ -198,7 +193,7 @@ class TestReserveStock:
             inventory_client.reserve_stock(items)
 
     @respx.mock
-    def test_rolls_back_successful_reservations_on_failure(self) -> None:
+    def test_does_not_release_on_batch_insufficient_stock(self) -> None:
         p1 = str(uuid.uuid4())
         p2 = str(uuid.uuid4())
         items = [
@@ -206,24 +201,17 @@ class TestReserveStock:
             {"product_id": p2, "quantity": 1},
         ]
         
-        # First product succeeds
-        respx.post(f"http://inventory-service:8000/internal/products/{p1}/stock/reserve").mock(
-            return_value=httpx.Response(200, json={"stock": 10}),
-        )
-        # Second product fails
-        respx.post(f"http://inventory-service:8000/internal/products/{p2}/stock/reserve").mock(
-            return_value=httpx.Response(409, json={"detail": "Insufficient stock"}),
-        )
-        
-        # We expect a rollback for the first product
-        rollback_mock = respx.post(f"http://inventory-service:8000/internal/products/{p1}/stock/release").mock(
+        release_mock = respx.post("http://inventory-service:8000/internal/products/stock/release").mock(
             return_value=httpx.Response(200),
+        )
+        respx.post("http://inventory-service:8000/internal/products/stock/reserve").mock(
+            return_value=httpx.Response(409, json={"detail": "Insufficient stock"}),
         )
 
         with pytest.raises(InsufficientStockError):
             inventory_client.reserve_stock(items)
             
-        assert rollback_mock.called
+        assert not release_mock.called
 
 
 class TestCommitStock:
@@ -240,7 +228,7 @@ class TestRollbackStock:
     @respx.mock
     def test_succeeds_on_200(self) -> None:
         p1 = str(uuid.uuid4())
-        respx.post(f"http://inventory-service:8000/internal/products/{p1}/stock/release").mock(
+        respx.post("http://inventory-service:8000/internal/products/stock/release").mock(
             return_value=httpx.Response(200),
         )
 
@@ -249,7 +237,7 @@ class TestRollbackStock:
     @respx.mock
     def test_logs_error_on_failure_but_continues(self) -> None:
         p1 = str(uuid.uuid4())
-        respx.post(f"http://inventory-service:8000/internal/products/{p1}/stock/release").mock(
+        respx.post("http://inventory-service:8000/internal/products/stock/release").mock(
             return_value=httpx.Response(500),
         )
 

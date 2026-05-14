@@ -2,9 +2,10 @@
 Integration tests for ``POST /orders/{id}/payment-webhook``.
 
 Each test first creates an order via the Saga (mocking Cart + Inventory),
-then calls the webhook with SUCCESS or FAILED to verify the resolution.
+then calls the webhook with APPROVED or REJECTED to verify the resolution.
 """
 
+import json
 import uuid
 
 import httpx
@@ -44,6 +45,15 @@ def _cart_response(user_id: str) -> dict:
     }
 
 
+def _stock_lookup_response(cart_payload: dict) -> dict:
+    return {
+        "data": {
+            item["productId"]: item["quantity"] + 10
+            for item in cart_payload["data"]["items"]
+        }
+    }
+
+
 _PREFERENCE_RESPONSE = {
     "preference_id": "mp-pref-abc123",
     "init_point": "https://www.mercadopago.com.ar/checkout/v1/redirect?pref_id=mp-pref-abc123",
@@ -52,7 +62,15 @@ _PREFERENCE_RESPONSE = {
 
 def _create_order_via_api(client: TestClient, user_id: str) -> str:
     """Create an order (mocking Cart, Inventory and Payments) and return its ``order_id``."""
-    respx.post("http://payments-service:8000/payments/preferences").mock(
+    cart_payload = _cart_response(user_id)
+    respx.get(f"http://cart-service:8000/cart/{user_id}").mock(
+        return_value=httpx.Response(200, json=cart_payload),
+    )
+    respx.post("http://inventory-service:8000/internal/products/stocks").mock(
+        return_value=httpx.Response(200, json=_stock_lookup_response(cart_payload)),
+    )
+    respx.post("http://inventory-service:8000/internal/products/stock/reserve").mock(return_value=httpx.Response(200, json={"data": []}))
+    payments_route = respx.post("http://payments-service:8000/payments/preferences").mock(
         return_value=httpx.Response(201, json=_PREFERENCE_RESPONSE),
     )
     response = client.post(
@@ -64,6 +82,9 @@ def _create_order_via_api(client: TestClient, user_id: str) -> str:
         },
     )
     assert response.status_code == 201
+    request_payload = json.loads(payments_route.calls.last.request.content)
+    assert request_payload["order_id"] is not None
+    assert all("line_item_id" in item for item in request_payload["items"])
     return response.json()["order_id"]
 
 
@@ -71,20 +92,13 @@ def _create_order_via_api(client: TestClient, user_id: str) -> str:
 
 
 class TestPaymentSuccess:
-    """Webhook with ``SUCCESS`` → CONFIRMADA + commit + clear cart."""
+    """Webhook with ``APPROVED`` → CONFIRMADA + commit + clear cart."""
 
     @respx.mock
     def test_updates_status_to_confirmada(self, client: TestClient) -> None:
         user_id = str(uuid.uuid4())
 
         # Mock for order creation.
-        respx.get(f"http://cart-service:8000/cart/{user_id}").mock(
-            return_value=httpx.Response(200, json=_cart_response(user_id)),
-        )
-        respx.post(url__regex=r"http://inventory-service:8000/internal/products/.*/stock/reserve").mock(
-            return_value=httpx.Response(200, json={"stock": 9}),
-        )
-
         order_id = _create_order_via_api(client, user_id)
 
         # Mock for webhook side effects.
@@ -95,22 +109,27 @@ class TestPaymentSuccess:
 
         response = client.post(
             f"/orders/{order_id}/payment-webhook",
-            json={"status": "SUCCESS", "transaction_id": "tx-123"},
+            json={"status": "APPROVED", "transaction_id": "tx-123"},
         )
 
         assert response.status_code == 200
         assert response.json()["status"] == "CONFIRMADA"
 
+        detail_response = client.get(
+            f"/orders/{order_id}",
+            headers={"X-User-Id": user_id},
+        )
+        assert detail_response.status_code == 200
+        history = detail_response.json()["status_history"]
+        assert len(history) >= 2
+        assert any(
+            event["origin"] == "webhook" and event["new_status"] == "CONFIRMADA"
+            for event in history
+        )
+
     @respx.mock
     def test_calls_inventory_commit(self, client: TestClient) -> None:
         user_id = str(uuid.uuid4())
-
-        respx.get(f"http://cart-service:8000/cart/{user_id}").mock(
-            return_value=httpx.Response(200, json=_cart_response(user_id)),
-        )
-        respx.post(url__regex=r"http://inventory-service:8000/internal/products/.*/stock/reserve").mock(
-            return_value=httpx.Response(200, json={"stock": 9}),
-        )
 
         order_id = _create_order_via_api(client, user_id)
 
@@ -122,7 +141,7 @@ class TestPaymentSuccess:
 
         response = client.post(
             f"/orders/{order_id}/payment-webhook",
-            json={"status": "SUCCESS", "transaction_id": "tx-456"},
+            json={"status": "APPROVED", "transaction_id": "tx-456"},
         )
 
         # The test originally checked if commit_route.called
@@ -133,13 +152,6 @@ class TestPaymentSuccess:
     def test_calls_cart_delete(self, client: TestClient) -> None:
         user_id = str(uuid.uuid4())
 
-        respx.get(f"http://cart-service:8000/cart/{user_id}").mock(
-            return_value=httpx.Response(200, json=_cart_response(user_id)),
-        )
-        respx.post(url__regex=r"http://inventory-service:8000/internal/products/.*/stock/reserve").mock(
-            return_value=httpx.Response(200, json={"stock": 9}),
-        )
-
         order_id = _create_order_via_api(client, user_id)
 
         # commit is no-op
@@ -149,35 +161,28 @@ class TestPaymentSuccess:
 
         client.post(
             f"/orders/{order_id}/payment-webhook",
-            json={"status": "SUCCESS", "transaction_id": "tx-789"},
+            json={"status": "APPROVED", "transaction_id": "tx-789"},
         )
 
         assert delete_route.called
 
 
 class TestPaymentFailed:
-    """Webhook with ``FAILED`` → PAGO_RECHAZADO + rollback stock."""
+    """Webhook with ``REJECTED`` → PAGO_RECHAZADO + rollback stock."""
 
     @respx.mock
     def test_updates_status_to_pago_rechazado(self, client: TestClient) -> None:
         user_id = str(uuid.uuid4())
 
-        respx.get(f"http://cart-service:8000/cart/{user_id}").mock(
-            return_value=httpx.Response(200, json=_cart_response(user_id)),
-        )
-        respx.post(url__regex=r"http://inventory-service:8000/internal/products/.*/stock/reserve").mock(
-            return_value=httpx.Response(200, json={"stock": 9}),
-        )
-
         order_id = _create_order_via_api(client, user_id)
 
-        respx.post(url__regex=r"http://inventory-service:8000/internal/products/.*/stock/release").mock(
+        respx.post("http://inventory-service:8000/internal/products/stock/release").mock(
             return_value=httpx.Response(200),
         )
 
         response = client.post(
             f"/orders/{order_id}/payment-webhook",
-            json={"status": "FAILED", "transaction_id": "tx-fail-1"},
+            json={"status": "REJECTED", "transaction_id": "tx-fail-1"},
         )
 
         assert response.status_code == 200
@@ -187,22 +192,15 @@ class TestPaymentFailed:
     def test_calls_inventory_rollback(self, client: TestClient) -> None:
         user_id = str(uuid.uuid4())
 
-        respx.get(f"http://cart-service:8000/cart/{user_id}").mock(
-            return_value=httpx.Response(200, json=_cart_response(user_id)),
-        )
-        respx.post(url__regex=r"http://inventory-service:8000/internal/products/.*/stock/reserve").mock(
-            return_value=httpx.Response(200, json={"stock": 9}),
-        )
-
         order_id = _create_order_via_api(client, user_id)
 
-        rollback_route = respx.post(url__regex=r"http://inventory-service:8000/internal/products/.*/stock/release").mock(
+        rollback_route = respx.post("http://inventory-service:8000/internal/products/stock/release").mock(
             return_value=httpx.Response(200),
         )
 
         client.post(
             f"/orders/{order_id}/payment-webhook",
-            json={"status": "FAILED", "transaction_id": "tx-fail-2"},
+            json={"status": "REJECTED", "transaction_id": "tx-fail-2"},
         )
 
         assert rollback_route.called
@@ -215,7 +213,7 @@ class TestWebhookErrors:
         fake_id = str(uuid.uuid4())
         response = client.post(
             f"/orders/{fake_id}/payment-webhook",
-            json={"status": "SUCCESS", "transaction_id": "tx-ghost"},
+            json={"status": "APPROVED", "transaction_id": "tx-ghost"},
         )
         assert response.status_code == 404
 
@@ -224,13 +222,6 @@ class TestWebhookErrors:
         """Calling the webhook twice on the same order should fail the
         second time because the order is no longer PENDIENTE_DE_PAGO."""
         user_id = str(uuid.uuid4())
-
-        respx.get(f"http://cart-service:8000/cart/{user_id}").mock(
-            return_value=httpx.Response(200, json=_cart_response(user_id)),
-        )
-        respx.post(url__regex=r"http://inventory-service:8000/internal/products/.*/stock/reserve").mock(
-            return_value=httpx.Response(200, json={"stock": 9}),
-        )
 
         order_id = _create_order_via_api(client, user_id)
 
@@ -242,14 +233,14 @@ class TestWebhookErrors:
         # First call — should succeed.
         first = client.post(
             f"/orders/{order_id}/payment-webhook",
-            json={"status": "SUCCESS", "transaction_id": "tx-dup-1"},
+            json={"status": "APPROVED", "transaction_id": "tx-dup-1"},
         )
         assert first.status_code == 200
 
         # Second call — state machine rejects.
         second = client.post(
             f"/orders/{order_id}/payment-webhook",
-            json={"status": "SUCCESS", "transaction_id": "tx-dup-2"},
+            json={"status": "APPROVED", "transaction_id": "tx-dup-2"},
         )
         assert second.status_code == 409
 

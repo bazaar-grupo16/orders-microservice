@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 
 from src.models.order import Order
 from src.models.order_item import OrderItem
+from src.models.order_status_history import OrderStatusHistory
 
 
 def create_order(
@@ -148,6 +149,30 @@ def update_tracking_code(db: Session, order: Order, tracking_code: str) -> Order
     return order
 
 
+def get_item_by_id(db: Session, item_id: uuid.UUID) -> OrderItem | None:
+    """Return an order item by primary key, or ``None`` if not found."""
+    return db.get(OrderItem, item_id)
+
+
+def update_item_status(db: Session, item: OrderItem, new_status: str, tracking_code: str | None = None) -> OrderItem:
+    """Update the item's logistic status and optionally set tracking code."""
+    item.status = new_status
+    if tracking_code is not None:
+        item.tracking_code = tracking_code
+    db.commit()
+    db.refresh(item)
+    return item
+
+
+def get_items_by_order_and_seller(db: Session, order_id: uuid.UUID, seller_id: uuid.UUID) -> Sequence[OrderItem]:
+    """Return all items from a given order sold by a specific seller."""
+    return (
+        db.query(OrderItem)
+        .filter(OrderItem.order_id == order_id, OrderItem.seller_id == seller_id)
+        .all()
+    )
+
+
 def update_payment_preference(
     db: Session,
     order: Order,
@@ -166,6 +191,57 @@ def update_payment_preference(
     db.commit()
     db.refresh(order)
     return order
+
+
+def record_status_change(
+    db: Session,
+    *,
+    order_id: uuid.UUID,
+    item_id: uuid.UUID | None,
+    previous_status: str | None,
+    new_status: str,
+    origin: str,
+    tracking_code: str | None = None,
+) -> OrderStatusHistory:
+    """Persist a status transition event."""
+    history = OrderStatusHistory(
+        order_id=order_id,
+        item_id=item_id,
+        status_previous=previous_status,
+        status_new=new_status,
+        origin=origin,
+        tracking_code=tracking_code,
+    )
+    db.add(history)
+    db.commit()
+    db.refresh(history)
+    return history
+
+
+def get_status_history(
+    db: Session,
+    *,
+    order_id: uuid.UUID,
+    item_id: uuid.UUID | None = None,
+    seller_id: uuid.UUID | None = None,
+) -> Sequence[OrderStatusHistory]:
+    """Return transition history for an order, sorted by timestamp ASC.
+
+    If ``seller_id`` is provided, only events for items sold by that seller
+    are returned (order-level events with ``item_id`` null are excluded).
+    """
+    query = db.query(OrderStatusHistory).filter(OrderStatusHistory.order_id == order_id)
+
+    if item_id is not None:
+        query = query.filter(OrderStatusHistory.item_id == item_id)
+
+    if seller_id is not None:
+        query = query.join(
+            OrderItem,
+            OrderItem.id == OrderStatusHistory.item_id,
+        ).filter(OrderItem.seller_id == seller_id)
+
+    return query.order_by(OrderStatusHistory.timestamp.asc()).all()
 
 
 def delete_order(db: Session, order: Order) -> None:
