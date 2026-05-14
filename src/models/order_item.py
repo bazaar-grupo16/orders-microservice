@@ -46,7 +46,7 @@ class OrderItem(Base):
     # ── Logistic state (per item, per vendor) ────────
     status: Mapped[str] = mapped_column(
         String(30),
-        default=OrderItemLogisticStatus.PENDIENTE_DE_PAGO,
+        default=OrderItemLogisticStatus.PENDIENTE_DE_PAGO.value,
         nullable=False,
     )
 
