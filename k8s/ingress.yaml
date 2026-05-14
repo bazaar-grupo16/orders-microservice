@@ -31,6 +31,27 @@ spec:
                 name: orders-service
                 port:
                   number: 80
+          - path: /orders/sales/[^/]+/?$
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: orders-service
+                port:
+                  number: 80
+          - path: /orders/sales/[^/]+/items/[^/]+/status/?$
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: orders-service
+                port:
+                  number: 80
+          - path: /orders/[^/]+/items/[^/]+/confirm-delivery/?$
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: orders-service
+                port:
+                  number: 80
           - path: /orders/[^/]+/status/?$
             pathType: ImplementationSpecific
             backend:
@@ -38,4 +59,3 @@ spec:
                 name: orders-service
                 port:
                   number: 80
-
