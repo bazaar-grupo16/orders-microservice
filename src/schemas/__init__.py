@@ -11,7 +11,7 @@ from src.schemas.order import (
     OrderResponse,
     OrderStatusHistoryResponse,
 )
-from src.schemas.status import UpdateStatusRequest
+from src.schemas.status import UpdateStatusRequest, UpdateItemStatusRequest
 from src.schemas.webhook import PaymentStatus, PaymentWebhookRequest
 
 __all__ = [
@@ -27,4 +27,5 @@ __all__ = [
     "PaymentWebhookRequest",
     "ShippingAddress",
     "UpdateStatusRequest",
+    "UpdateItemStatusRequest"
 ]
