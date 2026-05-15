@@ -290,6 +290,134 @@
         }
       }
     },
+    "/orders/{order_id}/cancel": {
+      "post": {
+        "tags": [
+          "Orders"
+        ],
+        "summary": "Cancel an order as the buyer",
+        "operationId": "cancel_order_orders__order_id__cancel_post",
+        "parameters": [
+          {
+            "name": "order_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Order Id"
+            }
+          },
+          {
+            "name": "x-user-id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-User-Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrderResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/orders/{order_id}/items/{item_id}/cancel": {
+      "post": {
+        "tags": [
+          "Orders"
+        ],
+        "summary": "Cancel a single item as the buyer",
+        "operationId": "cancel_order_item_orders__order_id__items__item_id__cancel_post",
+        "parameters": [
+          {
+            "name": "order_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Order Id"
+            }
+          },
+          {
+            "name": "item_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Item Id"
+            }
+          },
+          {
+            "name": "x-user-id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-User-Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrderResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/orders/{order_id}/items/{item_id}/confirm-delivery": {
       "post": {
         "tags": [
@@ -646,6 +774,75 @@
         }
       }
     },
+    "/orders/sales/{order_id}/items/{item_id}/cancel": {
+      "post": {
+        "tags": [
+          "Orders"
+        ],
+        "summary": "Cancel a single item as the seller",
+        "operationId": "cancel_order_item_as_seller_orders_sales__order_id__items__item_id__cancel_post",
+        "parameters": [
+          {
+            "name": "order_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Order Id"
+            }
+          },
+          {
+            "name": "item_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Item Id"
+            }
+          },
+          {
+            "name": "x-user-id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-User-Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrderResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/orders/{order_id}/status": {
       "patch": {
         "tags": [
@@ -683,6 +880,62 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/OrderResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/orders/{order_id}/refund-webhook": {
+      "post": {
+        "tags": [
+          "Orders"
+        ],
+        "summary": "Callback from Payments service when a refund is processed",
+        "description": "Callback from the Payments service to update item status after a refund.\n\nThis is an **internal endpoint** \u2014 called by the Payments service\nover the K8s internal network.  No ``X-User-Id`` header is required.\n\n- ``approved`` \u2192 Item status updated to ``REEMBOLSO_PROCESADO``.\n- ``rejected`` or ``canceled`` \u2192 Item status remains unchanged, but logged.",
+        "operationId": "refund_webhook_orders__order_id__refund_webhook_post",
+        "parameters": [
+          {
+            "name": "order_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Order Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RefundWebhookRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Refund Webhook Orders  Order Id  Refund Webhook Post"
                 }
               }
             }
@@ -1089,8 +1342,11 @@
       "PaymentStatus": {
         "type": "string",
         "enum": [
-          "SUCCESS",
-          "FAILED"
+          "PENDING",
+          "APPROVED",
+          "REJECTED",
+          "CANCELED",
+          "REFUNDED"
         ],
         "title": "PaymentStatus",
         "description": "Possible outcomes reported by the Payments service."
@@ -1112,6 +1368,35 @@
         ],
         "title": "PaymentWebhookRequest",
         "description": "Payload for the payment webhook callback."
+      },
+      "RefundStatus": {
+        "type": "string",
+        "enum": [
+          "approved",
+          "rejected",
+          "canceled"
+        ],
+        "title": "RefundStatus",
+        "description": "Possible refund outcomes reported by the Payments service."
+      },
+      "RefundWebhookRequest": {
+        "properties": {
+          "order_item_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Order Item Id"
+          },
+          "refund_status": {
+            "$ref": "#/components/schemas/RefundStatus"
+          }
+        },
+        "type": "object",
+        "required": [
+          "order_item_id",
+          "refund_status"
+        ],
+        "title": "RefundWebhookRequest",
+        "description": "Payload for the refund webhook callback."
       },
       "ShippingAddress": {
         "properties": {
