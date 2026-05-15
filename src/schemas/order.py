@@ -111,12 +111,12 @@ class OrderResponse(BaseModel):
             single_status = item_statuses.pop()
             return ITEM_STATUS_TO_ORDER_STATUS.get(single_status, None)
         
+        if OrderItemLogisticStatus.ENVIADO.value in item_statuses:
+            return OrderStatus.ENVIADA.value
         if OrderItemLogisticStatus.EN_PREPARACION.value in item_statuses:
             return OrderStatus.EN_PREPARACION.value
         if OrderItemLogisticStatus.CONFIRMADO.value in item_statuses:
             return OrderStatus.CONFIRMADA.value
-        if OrderItemLogisticStatus.ENVIADO.value in item_statuses:
-            return OrderStatus.ENVIADA.value
         if OrderItemLogisticStatus.ENTREGADO.value in item_statuses:
             return OrderStatus.ENTREGADA.value
         
