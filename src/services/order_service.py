@@ -366,6 +366,10 @@ def cancel_order_item(
     else:
         raise ValueError(f"Unsupported cancellation actor: {by}")
 
+    # if order_status is PENDIENTE_DE_PAGO, cancelling an item is equivalent to cancelling the whole order, so delegate to cancel_order
+    if OrderStatus(order.status) == OrderStatus.PENDIENTE_DE_PAGO:
+        return cancel_order(db, order_id=order_id, user_id=user_id)
+
     item = order_repository.get_item_by_id(db, item_id)
     if item is None or item.order_id != order_id:
         raise OrderNotFoundError(f"OrderItem {item_id} not found for order {order_id}")
