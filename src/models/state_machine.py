@@ -32,15 +32,15 @@ VALID_TRANSITIONS: dict[OrderStatus, set[OrderStatus]] = {
     OrderStatus.ENVIADA: {
         OrderStatus.ENTREGADA,
     },
-    # ── Terminal states (no outgoing transitions) ─────
-    OrderStatus.ENTREGADA: set(),
-    OrderStatus.PAGO_RECHAZADO: set(),
     OrderStatus.CANCELADA: {
         OrderStatus.REEMBOLSO_EN_PROCESO,
     },
     OrderStatus.REEMBOLSO_EN_PROCESO: {
         OrderStatus.REEMBOLSO_PROCESADO,
     },
+    # ── Terminal states (no outgoing transitions) ─────
+    OrderStatus.ENTREGADA: set(),
+    OrderStatus.PAGO_RECHAZADO: set(),
     OrderStatus.REEMBOLSO_PROCESADO: set(),
 }
 
@@ -64,18 +64,26 @@ ITEM_VALID_TRANSITIONS: dict[OrderItemLogisticStatus, set[OrderItemLogisticStatu
         OrderItemLogisticStatus.ENTREGADO,
     },
     OrderItemLogisticStatus.ENTREGADO: set(),
-    OrderItemLogisticStatus.CANCELADO: set(),
+    
+    OrderItemLogisticStatus.CANCELADO: {
+        OrderItemLogisticStatus.REEMBOLSO_EN_PROCESO,
+    },
+    OrderItemLogisticStatus.REEMBOLSO_EN_PROCESO: {
+        OrderItemLogisticStatus.REEMBOLSO_PROCESADO,
+    },
+    OrderItemLogisticStatus.REEMBOLSO_PROCESADO: set(),
 }
 
 
 class InvalidStateTransitionError(Exception):
     """Raised when an order transition violates the state machine rules."""
 
-    def __init__(self, current: OrderStatus | OrderItemLogisticStatus, target: OrderStatus | OrderItemLogisticStatus) -> None:
+    def __init__(self, current: str, target: str, detail: str = "") -> None:
         self.current = current
         self.target = target
+        self.detail = detail
         super().__init__(
-            f"Invalid transition: {current.value} → {target.value}"
+            f"Invalid transition: {current} → {target}. {detail}"
         )
 
 
@@ -97,7 +105,7 @@ def validate_transition(current: OrderStatus, target: OrderStatus) -> None:
     """
     allowed = VALID_TRANSITIONS.get(current, set())
     if target not in allowed:
-        raise InvalidStateTransitionError(current, target)
+        raise InvalidStateTransitionError(current.value, target.value)
 
 
 def validate_item_transition(current: OrderItemLogisticStatus, target: OrderItemLogisticStatus) -> None:
@@ -118,4 +126,4 @@ def validate_item_transition(current: OrderItemLogisticStatus, target: OrderItem
     """
     allowed = ITEM_VALID_TRANSITIONS.get(current, set())
     if target not in allowed:
-        raise InvalidStateTransitionError(current, target)
+        raise InvalidStateTransitionError(current.value, target.value)

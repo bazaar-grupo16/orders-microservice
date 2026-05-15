@@ -54,6 +54,8 @@ class OrderItemLogisticStatus(StrEnum):
     ENVIADO = "ENVIADO"
     ENTREGADO = "ENTREGADO"
     CANCELADO = "CANCELADO"
+    REEMBOLSO_EN_PROCESO = "REEMBOLSO_EN_PROCESO"
+    REEMBOLSO_PROCESADO = "REEMBOLSO_PROCESADO"
 
 ITEM_STATUS_TO_ORDER_STATUS: dict[str, str] = {
     OrderItemLogisticStatus.PENDIENTE_DE_PAGO.value: OrderStatus.PENDIENTE_DE_PAGO.value,
@@ -62,4 +64,6 @@ ITEM_STATUS_TO_ORDER_STATUS: dict[str, str] = {
     OrderItemLogisticStatus.ENVIADO.value: OrderStatus.ENVIADA.value,
     OrderItemLogisticStatus.ENTREGADO.value: OrderStatus.ENTREGADA.value,
     OrderItemLogisticStatus.CANCELADO.value: OrderStatus.CANCELADA.value,
+    OrderItemLogisticStatus.REEMBOLSO_EN_PROCESO.value: OrderStatus.REEMBOLSO_EN_PROCESO.value,
+    OrderItemLogisticStatus.REEMBOLSO_PROCESADO.value: OrderStatus.REEMBOLSO_PROCESADO.value,
 }

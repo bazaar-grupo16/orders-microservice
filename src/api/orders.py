@@ -20,6 +20,7 @@ from src.schemas import (
     PaymentWebhookRequest,
     UpdateStatusRequest,
 )
+from src.schemas.webhook import RefundWebhookRequest
 from src.services import order_service
 
 logger = logging.getLogger(__name__)
@@ -96,6 +97,47 @@ def payment_webhook(
     )
 
     return {"order_id": str(order.id), "status": order.status}
+
+
+@router.post(
+    "/{order_id}/cancel",
+    response_model=OrderResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Cancel an order as the buyer",
+)
+def cancel_order(
+    order_id: UUID,
+    db: DbSession,
+    user_id: CurrentUserId,
+) -> OrderResponse:
+    order = order_service.cancel_order(
+        db,
+        order_id=order_id,
+        user_id=user_id,
+    )
+    return _serialize_order(order_service, db, order)
+
+
+@router.post(
+    "/{order_id}/items/{item_id}/cancel",
+    response_model=OrderResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Cancel a single item as the buyer",
+)
+def cancel_order_item(
+    order_id: UUID,
+    item_id: UUID,
+    db: DbSession,
+    user_id: CurrentUserId,
+) -> OrderResponse:
+    order = order_service.cancel_order_item(
+        db,
+        order_id=order_id,
+        item_id=item_id,
+        user_id=user_id,
+        by="buyer",
+    )
+    return _serialize_order(order_service, db, order)
 
 
 @router.get(
@@ -384,6 +426,28 @@ def get_order(
     return OrderResponse.model_validate(order_dict)
 
 
+@router.post(
+    "/sales/{order_id}/items/{item_id}/cancel",
+    response_model=OrderResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Cancel a single item as the seller",
+)
+def cancel_order_item_as_seller(
+    order_id: UUID,
+    item_id: UUID,
+    db: DbSession,
+    user_id: CurrentUserId,
+) -> OrderResponse:
+    order = order_service.cancel_order_item(
+        db,
+        order_id=order_id,
+        item_id=item_id,
+        seller_id=user_id,
+        by="seller",
+    )
+    return _serialize_order(order_service, db, order)
+
+
 @router.patch(
     "/{order_id}/status",
     response_model=OrderResponse,
@@ -411,4 +475,52 @@ def update_order_status(
     
     order_dict = order.__dict__.copy()
     order_dict["order_id"] = order.id
+    return OrderResponse.model_validate(order_dict)
+
+@router.post(
+    "/{order_id}/refund-webhook",
+    status_code=status.HTTP_200_OK,
+    summary="Callback from Payments service when a refund is processed",
+)
+def refund_webhook(
+    order_id: UUID,
+    body: RefundWebhookRequest,
+    db: DbSession,
+) -> dict:
+    """Callback from the Payments service to update item status after a refund.
+
+    This is an **internal endpoint** — called by the Payments service
+    over the K8s internal network.  No ``X-User-Id`` header is required.
+
+    - ``approved`` → Item status updated to ``REEMBOLSO_PROCESADO``.
+    - ``rejected`` or ``canceled`` → Item status remains unchanged, but logged.
+    """
+    order_service.resolve_refund(
+        db,
+        order_id=order_id,
+        order_item_id=body.order_item_id,
+        refund_status=body.refund_status,
+    )
+
+    return {"order_id": str(order_id), "order_item_id": body.order_item_id, "refund_status": body.refund_status}
+
+
+def _serialize_order(service, db: DbSession, order) -> OrderResponse:
+    full_history = service.get_status_history(db, order_id=order.id)
+    history_by_item_id: dict[UUID, list] = {}
+    for event in full_history:
+        if event.item_id is None:
+            continue
+        history_by_item_id.setdefault(event.item_id, []).append(event)
+
+    item_dicts = []
+    for item in order.items:
+        item_dict = item.__dict__.copy()
+        item_dict["status_history"] = history_by_item_id.get(item.id, [])
+        item_dicts.append(item_dict)
+
+    order_dict = order.__dict__.copy()
+    order_dict["order_id"] = order.id
+    order_dict["items"] = item_dicts
+    order_dict["status_history"] = full_history
     return OrderResponse.model_validate(order_dict)

@@ -6,6 +6,7 @@ payment attempt via ``POST /orders/{order_id}/payment-webhook``.
 """
 
 from enum import StrEnum
+from uuid import UUID
 
 from pydantic import BaseModel
 
@@ -37,3 +38,18 @@ class PaymentWebhookRequest(BaseModel):
 
     status: PaymentStatus
     transaction_id: str
+
+class RefundStatus(StrEnum):
+    """Possible refund outcomes reported by the Payments service."""
+
+    REFUND_APPROVED = "approved"
+    REFUND_REJECTED = "rejected"
+    REFUND_CANCELED = "canceled"
+
+class RefundWebhookRequest(BaseModel):
+    """Payload for the refund webhook callback."""
+
+    order_item_id: UUID
+    refund_status: RefundStatus
+    
+    

@@ -94,3 +94,62 @@ def create_preference(
         response.status_code, order_id, detail,
     )
     raise PaymentsServiceError(detail)
+
+
+def request_refund(
+    *,
+    order_id: str,
+    order_item_id: str,
+) -> dict[str, str]:
+    """Request a refund for a single order item via the Payments microservice.
+
+    Sends ``POST /payments/{order_id}/refund`` with the item ID.
+    Returns the refund response data from the Payments service.
+
+    Parameters
+    ----------
+    order_id:
+        UUID string of the order.
+    order_item_id:
+        UUID string of the order item (line_item_id) to refund.
+
+    Returns
+    -------
+    dict
+        ``{"refund_id": str, "order_id": str, "order_item_id": str, ...}``
+        as defined in ``RefundResponse`` of the Payments OpenAPI contract.
+
+    Raises
+    ------
+    PaymentsServiceError
+        If the Payments service is unreachable, times out, or returns a
+        non-200 status.
+    """
+    url = f"{_base_url()}/payments/{order_id}/refund"
+    payload = {"order_item_id": order_item_id}
+
+    try:
+        response = httpx.post(url, json=payload, timeout=_TIMEOUT)
+    except httpx.HTTPError as exc:
+        logger.error("Payments service unreachable for refund: order=%s item=%s exc=%s", order_id, order_item_id, exc)
+        raise PaymentsServiceError("Payments service unreachable") from exc
+
+    if response.status_code == 200:
+        data = response.json()
+        logger.info(
+            "Refund requested: order=%s item=%s refund_id=%s",
+            order_id, order_item_id, data.get("refund_id"),
+        )
+        return data
+
+    # Non-200 responses are treated as failures.
+    try:
+        detail = response.json().get("detail", f"Unexpected status {response.status_code}")
+    except Exception:
+        detail = f"Unexpected status {response.status_code}"
+
+    logger.error(
+        "Payments refund error: status=%d order=%s item=%s detail=%s",
+        response.status_code, order_id, order_item_id, detail,
+    )
+    raise PaymentsServiceError(detail)
