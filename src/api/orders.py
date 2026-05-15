@@ -19,6 +19,7 @@ from src.schemas import (
     OrderResponse,
     PaymentWebhookRequest,
     UpdateStatusRequest,
+    UpdateItemStatusRequest
 )
 from src.schemas.webhook import RefundWebhookRequest
 from src.services import order_service
@@ -330,7 +331,7 @@ def get_seller_order(
 def update_item_status(
     order_id: UUID,
     item_id: UUID,
-    body: UpdateStatusRequest,
+    body: UpdateItemStatusRequest,
     db: DbSession,
     user_id: CurrentUserId,
 ) -> OrderResponse:
