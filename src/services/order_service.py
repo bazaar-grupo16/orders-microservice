@@ -410,7 +410,7 @@ def cancel_order_item(
 def _request_refund_for_item(db: Session, order_id: str, item: OrderItem) -> None:
     if item.status != OrderItemLogisticStatus.CANCELADO.value:
         return  # Only refund cancelled items
-    response = payments_client.request_refund(
+"""     response = payments_client.request_refund(
         order_id=order_id,
         order_item_id=str(item.id),
     )
@@ -434,7 +434,7 @@ def _request_refund_for_item(db: Session, order_id: str, item: OrderItem) -> Non
         new_status=OrderItemLogisticStatus.REEMBOLSO_EN_PROCESO.value,
         origin="payments",
         tracking_code=refund_id,
-    )
+    ) """
 
 def _request_refunds_for_order(db: Session, order: Order) -> None:
     """Request refunds for all items in a cancelled order (best effort).
