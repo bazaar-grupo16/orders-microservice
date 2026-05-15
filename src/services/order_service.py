@@ -263,6 +263,13 @@ def resolve_payment(
     previous_status = order.status
 
     # Update order status.
+    update_order_status(
+        db,
+        order_id=order.id,
+        new_status=target_status.value,
+        tracking_code=transaction_id,  # Store transaction ID as tracking code for audit
+    )
+
     order = order_repository.update_status(db, order, target_status)
     order_repository.record_status_change(
         db,
@@ -276,6 +283,8 @@ def resolve_payment(
         "Payment resolved: order=%s status=%s tx=%s",
         order_id, target_status, transaction_id,
     )
+
+
 
     # ── Post-resolution side effects ──────────────────
     if payment_status == PaymentStatus.APPROVED:
@@ -720,6 +729,7 @@ def update_order_status(
     order_id: uuid.UUID,
     new_status: str,
     tracking_code: str | None = None,
+    origin: str = "seller"
 ) -> Order:
     """Update an order's status and optionally its tracking code.
     
@@ -754,11 +764,11 @@ def update_order_status(
         item_id=None,
         previous_status=current_status.value,
         new_status=target_status.value,
-        origin="seller",
+        origin=origin,
         tracking_code=tracking_code,
     )
 
-    _propagate_status_to_items(db, order, target_status.value, origin="seller")
+    _propagate_status_to_items(db, order, target_status.value, origin=origin)
     
     logger.info(
         "Order status updated: order=%s old_status=%s new_status=%s",
