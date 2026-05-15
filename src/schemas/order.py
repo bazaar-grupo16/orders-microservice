@@ -99,9 +99,10 @@ class OrderResponse(BaseModel):
             return None
 
         if self.status in (
-            OrderStatus.PENDIENTE_DE_PAGO, OrderStatus.PAGO_RECHAZADO, OrderStatus.CANCELADA
+            OrderStatus.PENDIENTE_DE_PAGO, OrderStatus.PAGO_RECHAZADO, OrderStatus.CANCELADA,
+            OrderStatus.REEMBOLSO_EN_PROCESO, OrderStatus.REEMBOLSO_PROCESADO
             ):
-            return None
+            return self.status
         
         item_statuses = {item.status for item in self.items}
 
