@@ -64,7 +64,14 @@ ITEM_VALID_TRANSITIONS: dict[OrderItemLogisticStatus, set[OrderItemLogisticStatu
         OrderItemLogisticStatus.ENTREGADO,
     },
     OrderItemLogisticStatus.ENTREGADO: set(),
-    OrderItemLogisticStatus.CANCELADO: set(),
+    
+    OrderItemLogisticStatus.CANCELADO: {
+        OrderItemLogisticStatus.REEMBOLSO_EN_PROCESO,
+    },
+    OrderItemLogisticStatus.REEMBOLSO_EN_PROCESO: {
+        OrderItemLogisticStatus.REEMBOLSO_PROCESADO,
+    },
+    OrderItemLogisticStatus.REEMBOLSO_PROCESADO: set(),
 }
 
 

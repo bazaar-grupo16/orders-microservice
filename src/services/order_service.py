@@ -23,7 +23,7 @@ from src.models.order_item import OrderItem
 from src.models.order_status import OrderItemLogisticStatus, OrderStatus
 from src.models.state_machine import InvalidStateTransitionError, validate_item_transition, validate_transition
 from src.repositories import order_repository
-from src.schemas.webhook import PaymentStatus, payment_status_to_order_status
+from src.schemas.webhook import PaymentStatus, RefundStatus, payment_status_to_order_status
 
 logger = logging.getLogger(__name__)
 
@@ -327,6 +327,10 @@ def cancel_order(
     if previous_status in {OrderStatus.CONFIRMADA, OrderStatus.EN_PREPARACION}:
         _rollback_stock_for_items(order.items)
 
+    # ── Refund flow if order was paid ─────────────────────
+    if previous_status != OrderStatus.PENDIENTE_DE_PAGO:
+        _request_refunds_for_order(db, order)
+
     return order_repository.get_by_id(db, order_id)
 
 
@@ -380,7 +384,12 @@ def cancel_order_item(
     if OrderStatus(order.status) in {OrderStatus.CONFIRMADA, OrderStatus.EN_PREPARACION}:
         _rollback_stock_for_items([item])
 
-    if all(order_item.status == OrderItemLogisticStatus.CANCELADO.value for order_item in order.items):
+    all_items_cancelled = all(
+        order_item.status == OrderItemLogisticStatus.CANCELADO.value
+        for order_item in order.items
+    )
+
+    if all_items_cancelled:
         order = order_repository.update_status(db, order, OrderStatus.CANCELADA)
         order_repository.record_status_change(
             db,
@@ -392,7 +401,141 @@ def cancel_order_item(
         )
         _propagate_status_to_items(db, order, OrderStatus.CANCELADA.value, origin=by)
 
+        _request_refunds_for_order(db, order)
+    elif OrderStatus(order.status) in {OrderStatus.CONFIRMADA, OrderStatus.EN_PREPARACION}:
+        _request_refund_for_item(db, str(order.id), item)
+
     return order_repository.get_by_id(db, order_id)
+
+def _request_refund_for_item(db: Session, order_id: str, item: OrderItem) -> None:
+    if item.status != OrderItemLogisticStatus.CANCELADO.value:
+        return  # Only refund cancelled items
+    response = payments_client.request_refund(
+        order_id=order_id,
+        order_item_id=str(item.id),
+    )
+    refund_id = response.get("refund_id")
+    order_repository.update_item_status(
+        db,
+        item,
+        OrderItemLogisticStatus.REEMBOLSO_EN_PROCESO.value,
+        tracking_code=refund_id,
+    )
+    logger.info(
+        "Refund requested successfully: order=%s item=%s refund_id=%s",
+        order_id, item.id, refund_id,
+    )
+    # Record refund event in status history with refund_id tracking
+    order_repository.record_status_change(
+        db,
+        order_id=order_id,
+        item_id=item.id,
+        previous_status=OrderItemLogisticStatus.CANCELADO.value,
+        new_status=OrderItemLogisticStatus.REEMBOLSO_EN_PROCESO.value,
+        origin="payments",
+        tracking_code=refund_id,
+    )
+
+def _request_refunds_for_order(db: Session, order: Order) -> None:
+    """Request refunds for all items in a cancelled order (best effort).
+    
+    Transitions order: CANCELADA → REEMBOLSO_EN_PROCESO → REEMBOLSO_PROCESADO.
+    If any refund fails, errors are logged but do not block the operation.
+    """
+    if order.status != OrderStatus.CANCELADA.value:
+        return
+
+
+    # ── Step 1: Request refund for each item ────────────────
+    refund_errors = []
+    for item in order.items:
+        try:
+            _request_refund_for_item(db, str(order.id), item)
+        except PaymentsServiceError as e:
+            logger.error(
+                "Refund failed for order=%s item=%s: %s",
+                order.id, item.id, str(e),
+            )
+            refund_errors.append((str(item.id), str(e)))
+
+    # ── Step 2: Transition to REEMBOLSO_EN_PROCESO ──────────
+    try:
+        order = order_repository.update_status(db, order, OrderStatus.REEMBOLSO_EN_PROCESO)
+        order_repository.record_status_change(
+            db,
+            order_id=order.id,
+            item_id=None,
+            previous_status=OrderStatus.CANCELADA.value,
+            new_status=OrderStatus.REEMBOLSO_EN_PROCESO.value,
+            origin="system",
+        )
+        logger.info("Order refund initiated: order=%s status=%s", order.id, OrderStatus.REEMBOLSO_EN_PROCESO)
+    except Exception as e:
+        logger.error("Failed to transition to REEMBOLSO_EN_PROCESO for order=%s: %s", order.id, e)
+        return
+
+def resolve_refund(
+    db: Session,
+    *,
+    order_id: uuid.UUID,
+    order_item_id: uuid.UUID,
+    refund_status: RefundStatus,
+) -> None:
+    """Process a refund webhook for an order item."""
+    order = order_repository.get_by_id(db, order_id)
+    if order is None:
+        raise OrderNotFoundError(str(order_id))
+
+    item = order_repository.get_item_by_id(db, order_item_id)
+    if item is None or item.order_id != order_id:
+        raise OrderNotFoundError(f"OrderItem {order_item_id} not found for order {order_id}")
+
+    if refund_status != RefundStatus.REFUND_APPROVED:
+        # TODO - handle refund failure case (e.g. transition back to CANCELADO or flag for manual review)
+        # (no implementado porque está fuera de los C.A.)
+        logger.error(
+            "Refund failed for order=%s item=%s: refund_status=%s",
+            order_id, order_item_id, refund_status,
+        )
+        return
+
+    new_status = OrderItemLogisticStatus.REEMBOLSO_PROCESADO
+    previous_status = OrderItemLogisticStatus(item.status)
+    validate_item_transition(previous_status, new_status)
+
+    order_repository.update_item_status(
+        db,
+        item,
+        new_status.value,
+    )
+    order_repository.record_status_change(
+        db,
+        order_id=order_id,
+        item_id=order_item_id,
+        previous_status=previous_status.value,
+        new_status=new_status.value,
+        origin="webhook",
+    )
+
+    if all(
+        OrderItemLogisticStatus(order_item.status) == OrderItemLogisticStatus.REEMBOLSO_PROCESADO
+        for order_item in order.items
+    ):
+        previous_order_status = OrderStatus(order.status)
+        validate_transition(previous_order_status, OrderStatus.REEMBOLSO_PROCESADO)
+        order_repository.update_status(db, order, OrderStatus.REEMBOLSO_PROCESADO)
+        order_repository.record_status_change(
+            db,
+            order_id=order_id,
+            item_id=None,
+            previous_status=previous_order_status.value,
+            new_status=OrderStatus.REEMBOLSO_PROCESADO.value,
+            origin="webhook",
+        )
+    logger.info(
+        "Refund status updated: order=%s item=%s status=%s",
+        order_id, order_item_id, new_status.value,
+    )
 
 
 def _on_payment_success(order: Order) -> None:

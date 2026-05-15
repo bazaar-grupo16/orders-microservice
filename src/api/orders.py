@@ -20,6 +20,7 @@ from src.schemas import (
     PaymentWebhookRequest,
     UpdateStatusRequest,
 )
+from src.schemas.webhook import RefundWebhookRequest
 from src.services import order_service
 
 logger = logging.getLogger(__name__)
@@ -475,6 +476,33 @@ def update_order_status(
     order_dict = order.__dict__.copy()
     order_dict["order_id"] = order.id
     return OrderResponse.model_validate(order_dict)
+
+@router.post(
+    "/{order_id}/refund-webhook",
+    status_code=status.HTTP_200_OK,
+    summary="Callback from Payments service when a refund is processed",
+)
+def refund_webhook(
+    order_id: UUID,
+    body: RefundWebhookRequest,
+    db: DbSession,
+) -> dict:
+    """Callback from the Payments service to update item status after a refund.
+
+    This is an **internal endpoint** — called by the Payments service
+    over the K8s internal network.  No ``X-User-Id`` header is required.
+
+    - ``approved`` → Item status updated to ``REEMBOLSO_PROCESADO``.
+    - ``rejected`` or ``canceled`` → Item status remains unchanged, but logged.
+    """
+    order_service.resolve_refund(
+        db,
+        order_id=order_id,
+        order_item_id=body.order_item_id,
+        refund_status=body.refund_status,
+    )
+
+    return {"order_id": str(order_id), "order_item_id": body.order_item_id, "refund_status": body.refund_status}
 
 
 def _serialize_order(service, db: DbSession, order) -> OrderResponse:

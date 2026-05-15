@@ -3,6 +3,7 @@ Integration tests for order cancellation flows.
 """
 
 import uuid
+import json
 
 import httpx
 import respx
@@ -60,10 +61,26 @@ class TestCancelOrderByBuyer:
         buyer_id = uuid.uuid4()
         seller_id = uuid.uuid4()
         order = _create_order(db_session, buyer_id=buyer_id, seller_id=seller_id)
+        item_id = order.items[0].id
 
         rollback_route = respx.post(
             "http://inventory-service:8000/internal/products/stock/release"
         ).mock(return_value=httpx.Response(200))
+
+        refund_route = respx.post(
+            f"http://payments-service:8000/payments/{order.id}/refund"
+        ).mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "refund_id": "refund-123",
+                    "order_id": str(order.id),
+                    "order_item_id": str(item_id),
+                    "status": "COMPLETED",
+                    "amount": 1500.0,
+                },
+            )
+        )
 
         response = client.post(
             f"/orders/{order.id}/cancel",
@@ -72,10 +89,12 @@ class TestCancelOrderByBuyer:
 
         assert response.status_code == 200
         data = response.json()
-        assert data["status"] == OrderStatus.CANCELADA
-        assert data["items"][0]["status"] == OrderItemLogisticStatus.CANCELADO
+        assert data["status"] == OrderStatus.REEMBOLSO_EN_PROCESO
+        assert data["items"][0]["status"] == OrderItemLogisticStatus.REEMBOLSO_EN_PROCESO
         assert rollback_route.called
+        assert refund_route.called
         assert any(event["new_status"] == OrderStatus.CANCELADA for event in data["status_history"])
+        assert any(event["new_status"] == OrderStatus.REEMBOLSO_EN_PROCESO for event in data["status_history"])
 
 
 class TestCancelOrderBySeller:
@@ -103,6 +122,21 @@ class TestCancelOrderBySeller:
             "http://inventory-service:8000/internal/products/stock/release"
         ).mock(return_value=httpx.Response(200))
 
+        refund_route = respx.post(
+            f"http://payments-service:8000/payments/{order.id}/refund"
+        ).mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "refund_id": "refund-456",
+                    "order_id": str(order.id),
+                    "order_item_id": str(item_id),
+                    "status": "COMPLETED",
+                    "amount": 1500.0,
+                },
+            )
+        )
+
         response = client.post(
             f"/orders/sales/{order.id}/items/{item_id}/cancel",
             headers={"X-User-Id": str(seller_id)},
@@ -110,9 +144,10 @@ class TestCancelOrderBySeller:
 
         assert response.status_code == 200
         data = response.json()
-        assert data["status"] == OrderStatus.CANCELADA
-        assert data["items"][0]["status"] == OrderItemLogisticStatus.CANCELADO
+        assert data["status"] == OrderStatus.REEMBOLSO_EN_PROCESO
+        assert data["items"][0]["status"] == OrderItemLogisticStatus.REEMBOLSO_EN_PROCESO
         assert rollback_route.called
+        assert refund_route.called
         assert any(event["new_status"] == OrderItemLogisticStatus.CANCELADO for event in data["status_history"])
 
 
@@ -134,3 +169,195 @@ class TestCancelOrderGuards:
         )
 
         assert response.status_code == 409
+
+
+class TestCancelOrderWithRefund:
+    """Cancelling a paid order triggers refund flow."""
+
+    @respx.mock
+    def test_cancels_confirmed_order_and_requests_refund(
+        self,
+        client: TestClient,
+        db_session: Session,
+    ) -> None:
+        buyer_id = uuid.uuid4()
+        seller_id = uuid.uuid4()
+        order = _create_order(db_session, buyer_id=buyer_id, seller_id=seller_id, status=OrderStatus.CONFIRMADA)
+        item_id = order.items[0].id
+
+        # Mock stock rollback
+        rollback_route = respx.post(
+            "http://inventory-service:8000/internal/products/stock/release"
+        ).mock(return_value=httpx.Response(200))
+
+        # Mock refund endpoint
+        refund_route = respx.post(
+            f"http://payments-service:8000/payments/{order.id}/refund"
+        ).mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "refund_id": "refund-123",
+                    "order_id": str(order.id),
+                    "order_item_id": str(item_id),
+                    "status": "COMPLETED",
+                    "amount": 1500.0,
+                },
+            )
+        )
+
+        response = client.post(
+            f"/orders/{order.id}/cancel",
+            headers={"X-User-Id": str(buyer_id)},
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["status"] == OrderStatus.REEMBOLSO_EN_PROCESO
+        assert data["items"][0]["status"] == OrderItemLogisticStatus.REEMBOLSO_EN_PROCESO
+
+        # Verify refund was called
+        assert refund_route.called
+        assert json.loads(refund_route.calls.last.request.content) == {"order_item_id": str(item_id)}
+
+        # Verify stock rollback was called
+        assert rollback_route.called
+
+        # Verify status history contains refund events
+        status_history = data["status_history"]
+        assert any(event["new_status"] == OrderStatus.CANCELADA for event in status_history)
+        assert any(event["new_status"] == OrderStatus.REEMBOLSO_EN_PROCESO for event in status_history)
+
+        refund_webhook_response = client.post(
+            f"/orders/{order.id}/refund-webhook",
+            json={
+                "order_item_id": str(item_id),
+                "refund_status": "approved",
+            },
+        )
+        assert refund_webhook_response.status_code == 200
+
+        detail_response = client.get(
+            f"/orders/{order.id}",
+            headers={"X-User-Id": str(buyer_id)},
+        )
+        assert detail_response.status_code == 200
+        detail = detail_response.json()
+        assert detail["status"] == OrderStatus.REEMBOLSO_PROCESADO
+        assert detail["items"][0]["status"] == OrderItemLogisticStatus.REEMBOLSO_PROCESADO
+        assert any(event["new_status"] == OrderItemLogisticStatus.REEMBOLSO_PROCESADO for event in detail["status_history"])
+        assert any(event["new_status"] == OrderStatus.REEMBOLSO_PROCESADO for event in detail["status_history"])
+
+    @respx.mock
+    def test_cancels_confirmed_order_with_multiple_items_and_refunds_each(
+        self,
+        client: TestClient,
+        db_session: Session,
+    ) -> None:
+        """Verify refund is called once per item in a multi-item order."""
+        buyer_id = uuid.uuid4()
+        seller_id_1 = uuid.uuid4()
+        seller_id_2 = uuid.uuid4()
+        
+        order = order_repository.create_order(
+            db_session,
+            user_id=buyer_id,
+            idempotency_key=str(uuid.uuid4()),
+            shipping_address=_VALID_ADDRESS,
+            total_amount=3000.0,
+            status=OrderStatus.CONFIRMADA,
+            items=[
+                {
+                    "product_id": uuid.uuid4(),
+                    "seller_id": seller_id_1,
+                    "product_name": "Product 1",
+                    "quantity": 1,
+                    "unit_price": 1500.0,
+                },
+                {
+                    "product_id": uuid.uuid4(),
+                    "seller_id": seller_id_2,
+                    "product_name": "Product 2",
+                    "quantity": 1,
+                    "unit_price": 1500.0,
+                },
+            ],
+        )
+        item_ids = [item.id for item in order.items]
+
+        # Mock stock rollback
+        respx.post(
+            "http://inventory-service:8000/internal/products/stock/release"
+        ).mock(return_value=httpx.Response(200))
+
+        # Mock refund endpoints for both items
+        refund_route = respx.post(
+            f"http://payments-service:8000/payments/{order.id}/refund"
+        ).mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "refund_id": "refund-456",
+                    "order_id": str(order.id),
+                    "order_item_id": "",  # Will be different per call
+                    "status": "COMPLETED",
+                    "amount": 1500.0,
+                },
+            )
+        )
+
+        response = client.post(
+            f"/orders/{order.id}/cancel",
+            headers={"X-User-Id": str(buyer_id)},
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+
+        # Verify order is in refund progress while the external refund is pending
+        assert data["status"] == OrderStatus.REEMBOLSO_EN_PROCESO
+        
+        # Verify refund was called for each item
+        assert refund_route.call_count == 2
+        request_bodies = [json.loads(call.request.content) for call in refund_route.calls]
+        assert request_bodies[0]["order_item_id"] == str(item_ids[0])
+        assert request_bodies[1]["order_item_id"] == str(item_ids[1])
+
+    @respx.mock
+    def test_cancellation_completes_even_if_refund_fails(
+        self,
+        client: TestClient,
+        db_session: Session,
+    ) -> None:
+        """Best-effort: cancellation succeeds even if refund endpoint fails."""
+        buyer_id = uuid.uuid4()
+        seller_id = uuid.uuid4()
+        order = _create_order(db_session, buyer_id=buyer_id, seller_id=seller_id, status=OrderStatus.CONFIRMADA)
+
+        # Mock stock rollback
+        respx.post(
+            "http://inventory-service:8000/internal/products/stock/release"
+        ).mock(return_value=httpx.Response(200))
+
+        # Mock refund endpoint to fail
+        respx.post(
+            f"http://payments-service:8000/payments/{order.id}/refund"
+        ).mock(return_value=httpx.Response(500, json={"detail": "Service unavailable"}))
+
+        response = client.post(
+            f"/orders/{order.id}/cancel",
+            headers={"X-User-Id": str(buyer_id)},
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        
+        # Order is cancelled but refund stays in progress (not fully processed)
+        assert data["status"] == OrderStatus.REEMBOLSO_EN_PROCESO
+        
+        # Verify transition to REEMBOLSO_EN_PROCESO is recorded
+        status_history = data["status_history"]
+        assert any(event["new_status"] == OrderStatus.REEMBOLSO_EN_PROCESO for event in status_history)
+        
+        # REEMBOLSO_PROCESADO should NOT be present since refund failed
+        assert not any(event["new_status"] == OrderStatus.REEMBOLSO_PROCESADO for event in status_history)
