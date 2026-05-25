@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from src.models.order import Order
 from src.models.order_status import OrderStatus
+from src.models.order_status_history import OrderStatusHistory
 from src.repositories import order_repository
 
 
@@ -106,15 +107,7 @@ class TestGetOrder:
         order = _create_db_order(db_session, user_id)
         item = order.items[0]
 
-        order_repository.record_status_change(
-            db_session,
-            order_id=order.id,
-            item_id=None,
-            previous_status=None,
-            new_status=OrderStatus.PENDIENTE_DE_PAGO,
-            origin="system",
-        )
-        order_repository.record_status_change(
+        _record_status_change(
             db_session,
             order_id=order.id,
             item_id=item.id,
@@ -144,7 +137,7 @@ class TestGetOrder:
         first_ts = first_data["status_history"][0]["timestamp"]
         second_ts = first_data["status_history"][1]["timestamp"]
         assert first_ts <= second_ts
-        assert first_data["status_history"][0]["origin"] == "system"
+        assert first_data["status_history"][0]["origin"] == "buyer"
         assert first_data["status_history"][1]["origin"] == "webhook"
 
         assert len(first_data["items"][0]["status_history"]) == 1
@@ -384,7 +377,7 @@ class TestGetSellerOrder:
         item_a = next(item for item in order.items if item.seller_id == seller_a)
         item_b = next(item for item in order.items if item.seller_id == seller_b)
 
-        order_repository.record_status_change(
+        _record_status_change(
             db_session,
             order_id=order.id,
             item_id=None,
@@ -392,7 +385,7 @@ class TestGetSellerOrder:
             new_status="CONFIRMADA",
             origin="webhook",
         )
-        order_repository.record_status_change(
+        _record_status_change(
             db_session,
             order_id=order.id,
             item_id=item_a.id,
@@ -400,7 +393,7 @@ class TestGetSellerOrder:
             new_status="EN_PREPARACION",
             origin="seller",
         )
-        order_repository.record_status_change(
+        _record_status_change(
             db_session,
             order_id=order.id,
             item_id=item_b.id,
@@ -423,3 +416,26 @@ class TestGetSellerOrder:
         assert len(data["items"]) == 1
         assert len(data["items"][0]["status_history"]) == 1
         assert data["items"][0]["status_history"][0]["item_id"] == str(item_a.id)
+
+def _record_status_change(
+    db: Session,
+    *,
+    order_id: uuid.UUID,
+    item_id: uuid.UUID | None,
+    previous_status: str | None,
+    new_status: str,
+    origin: str,
+    tracking_code: str | None = None,
+) -> OrderStatusHistory:
+    """Backward-compatible alias for ``create_status_change``."""
+    history = order_repository.create_status_change(
+        db,
+        order_id=order_id,
+        item_id=item_id,
+        previous_status=previous_status,
+        new_status=new_status,
+        origin=origin,
+        tracking_code=tracking_code,
+    )
+    db.commit()
+    return history

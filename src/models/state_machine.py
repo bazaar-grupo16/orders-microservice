@@ -127,3 +127,15 @@ def validate_item_transition(current: OrderItemLogisticStatus, target: OrderItem
     allowed = ITEM_VALID_TRANSITIONS.get(current, set())
     if target not in allowed:
         raise InvalidStateTransitionError(current.value, target.value)
+
+				
+def validate_item_transition_bool(
+    current_status: OrderItemLogisticStatus,
+    target_status: OrderItemLogisticStatus,
+) -> bool:
+    """Return True if the item status transition is valid, False otherwise."""
+    try:
+        validate_item_transition(current_status, target_status)
+        return True
+    except InvalidStateTransitionError:
+        return False

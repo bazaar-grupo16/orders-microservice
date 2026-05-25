@@ -285,7 +285,7 @@ def get_seller_order(
     user_id: CurrentUserId,
 ) -> OrderResponse:
     """Retrieve a single order by ID, showing only items sold by the user.
-    
+        
     Validates that the order contains at least one item sold by the user.
     """
     order = order_service.get_order_for_seller(
@@ -293,7 +293,7 @@ def get_seller_order(
         order_id=order_id,
         seller_id=user_id,
     )
-    
+        
     # Filter to seller's items only
     seller_items = [item for item in order.items if item.seller_id == user_id]
     seller_history = order_service.get_status_history(
@@ -313,7 +313,7 @@ def get_seller_order(
         item_dict = item.__dict__.copy()
         item_dict["status_history"] = history_by_item_id.get(item.id, [])
         seller_item_dicts.append(item_dict)
-    
+        
     order_dict = order.__dict__.copy()
     order_dict["order_id"] = order.id
     order_dict["items"] = seller_item_dicts
@@ -336,7 +336,7 @@ def update_item_status(
     user_id: CurrentUserId,
 ) -> OrderResponse:
     """Update the logistic status of an order item.
-    
+        
     Only sellers can update items they sold. The transition is validated
     against the item logistic state machine.
     """
@@ -346,7 +346,7 @@ def update_item_status(
         order_id=order_id,
         seller_id=user_id,
     )
-    
+        
     # Verify the item belongs to this order and this seller
     item = next((i for i in order.items if i.id == item_id), None)
     if item is None or item.seller_id != user_id:
@@ -354,7 +354,7 @@ def update_item_status(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Item not found or not owned by seller",
         )
-    
+        
     # Update the item status
     order_service.update_item_status(
         db,
@@ -362,23 +362,23 @@ def update_item_status(
         new_status=body.status,
         tracking_code=body.tracking_code,
     )
-    
+        
     # Refresh and return updated order
     order = order_service.get_order_for_seller(
         db,
         order_id=order_id,
         seller_id=user_id,
     )
-    
+        
     order_dict = order.__dict__.copy()
     order_dict["order_id"] = order.id
     order_dict["items"] = [i for i in order.items if i.seller_id == user_id]
-    
+        
     logger.debug(
         "Item status updated: order=%s item=%s new_status=%s seller=%s",
         order_id, item_id, body.status, user_id,
     )
-    
+        
     return OrderResponse.model_validate(order_dict)
 
 
@@ -395,7 +395,7 @@ def get_order(
     user_id: CurrentUserId,
 ) -> OrderResponse:
     """Retrieve a single order by ID.
-    
+        
     The order must belong to the authenticated user.
     """
     order = order_service.get_order(
@@ -419,7 +419,7 @@ def get_order(
         item_dict = item.__dict__.copy()
         item_dict["status_history"] = history_by_item_id.get(item.id, [])
         item_dicts.append(item_dict)
-    
+        
     order_dict = order.__dict__.copy()
     order_dict["order_id"] = order.id
     order_dict["items"] = item_dicts
@@ -463,7 +463,7 @@ def update_order_status(
     # We are keeping it simple per the plan.
 ) -> OrderResponse:
     """Update the status of an order.
-    
+        
     This endpoint allows sellers to transition an order through its
     fulfillment lifecycle (e.g., CONFIRMADA -> EN_PREPARACION).
     """
@@ -473,10 +473,8 @@ def update_order_status(
         new_status=body.status,
         tracking_code=body.tracking_code,
     )
-    
-    order_dict = order.__dict__.copy()
-    order_dict["order_id"] = order.id
-    return OrderResponse.model_validate(order_dict)
+
+    return _serialize_order(order_service, db, order)
 
 @router.post(
     "/{order_id}/refund-webhook",

@@ -16,7 +16,6 @@ from src.models.order import Order
 from src.models.order_item import OrderItem
 from src.models.order_status_history import OrderStatusHistory
 
-
 def create_order(
     db: Session,
     *,
@@ -46,6 +45,17 @@ def create_order(
         order.items.append(OrderItem(**item_data))
 
     db.add(order)
+    db.flush()
+
+    create_status_change(
+        db,
+        order_id=order.id,
+        item_id=None,
+        previous_status=None,
+        new_status=status,
+        origin="buyer",
+    )
+
     db.commit()
     db.refresh(order)
     return order
@@ -133,9 +143,27 @@ def list_by_seller(
     return orders, total
 
 
-def update_status(db: Session, order: Order, new_status: str) -> Order:
-    """Update the order's status and persist."""
-    order.status = new_status
+def update_status(
+    db: Session,
+    order: Order,
+    new_status: str,
+    *,
+    origin: str = "system",
+    tracking_code: str | None = None,
+) -> Order:
+    """Update the order's status and persist its transition history."""
+    previous_status = order.status.value if hasattr(order.status, "value") else order.status
+    new_status_value = new_status.value if hasattr(new_status, "value") else new_status
+    order.status = new_status_value
+    create_status_change(
+        db,
+        order_id=order.id,
+        item_id=None,
+        previous_status=previous_status,
+        new_status=new_status_value,
+        origin=origin,
+        tracking_code=tracking_code,
+    )
     db.commit()
     db.refresh(order)
     return order
@@ -154,11 +182,29 @@ def get_item_by_id(db: Session, item_id: uuid.UUID) -> OrderItem | None:
     return db.get(OrderItem, item_id)
 
 
-def update_item_status(db: Session, item: OrderItem, new_status: str, tracking_code: str | None = None) -> OrderItem:
-    """Update the item's logistic status and optionally set tracking code."""
-    item.status = new_status
+def update_item_status(
+    db: Session,
+    item: OrderItem,
+    new_status: str,
+    tracking_code: str | None = None,
+    *,
+    origin: str = "system",
+) -> OrderItem:
+    """Update the item's logistic status, persist its history, and optionally set tracking code."""
+    previous_status = item.status.value if hasattr(item.status, "value") else item.status
+    new_status_value = new_status.value if hasattr(new_status, "value") else new_status
+    item.status = new_status_value
     if tracking_code is not None:
         item.tracking_code = tracking_code
+    create_status_change(
+        db,
+        order_id=item.order_id,
+        item_id=item.id,
+        previous_status=previous_status,
+        new_status=new_status_value,
+        origin=origin,
+        tracking_code=tracking_code,
+    )
     db.commit()
     db.refresh(item)
     return item
@@ -192,8 +238,7 @@ def update_payment_preference(
     db.refresh(order)
     return order
 
-
-def record_status_change(
+def create_status_change(
     db: Session,
     *,
     order_id: uuid.UUID,
@@ -203,7 +248,7 @@ def record_status_change(
     origin: str,
     tracking_code: str | None = None,
 ) -> OrderStatusHistory:
-    """Persist a status transition event."""
+    """Build and attach a status transition record without persisting it yet."""
     history = OrderStatusHistory(
         order_id=order_id,
         item_id=item_id,
@@ -213,10 +258,7 @@ def record_status_change(
         tracking_code=tracking_code,
     )
     db.add(history)
-    db.commit()
-    db.refresh(history)
     return history
-
 
 def get_status_history(
     db: Session,

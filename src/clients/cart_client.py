@@ -73,6 +73,7 @@ def get_cart(user_id: str) -> list[dict[str, Any]]:
     ExternalServiceError
         If the Cart service is unreachable or returns an unexpected error.
     """
+    user_id = str(user_id)
     url = f"{_base_url()}/cart/{user_id}"
     try:
         response = httpx.get(url, timeout=_TIMEOUT, headers={"X-User-ID": user_id})
@@ -109,6 +110,7 @@ def delete_cart(user_id: str) -> None:
     ExternalServiceError
         If the Cart service is unreachable or returns an error.
     """
+    user_id = str(user_id)
     url = f"{_base_url()}/cart/{user_id}"
     try:
         response = httpx.delete(url, timeout=_TIMEOUT, headers={"X-User-ID": user_id})

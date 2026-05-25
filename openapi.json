@@ -685,7 +685,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/UpdateStatusRequest"
+                "$ref": "#/components/schemas/UpdateItemStatusRequest"
               }
             }
           }
@@ -1120,6 +1120,21 @@
         "title": "OrderItemDetailResponse",
         "description": "Order item with item-specific status history."
       },
+      "OrderItemLogisticStatus": {
+        "type": "string",
+        "enum": [
+          "PENDIENTE_DE_PAGO",
+          "CONFIRMADO",
+          "EN_PREPARACION",
+          "ENVIADO",
+          "ENTREGADO",
+          "CANCELADO",
+          "REEMBOLSO_EN_PROCESO",
+          "REEMBOLSO_PROCESADO"
+        ],
+        "title": "OrderItemLogisticStatus",
+        "description": "Logistic state of an individual order item, per vendor.\n\nSeparate from the order's financial status (OrderStatus).\nEach item can be in a different logistic state independently."
+      },
       "OrderListResponse": {
         "properties": {
           "orders": {
@@ -1431,6 +1446,30 @@
         ],
         "title": "ShippingAddress",
         "description": "Structured shipping address for an order."
+      },
+      "UpdateItemStatusRequest": {
+        "properties": {
+          "status": {
+            "$ref": "#/components/schemas/OrderItemLogisticStatus"
+          },
+          "tracking_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tracking Code"
+          }
+        },
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "title": "UpdateItemStatusRequest",
+        "description": "Payload for ``PATCH /orders/sales/{order_id}/items/{item_id}/status``."
       },
       "UpdateStatusRequest": {
         "properties": {

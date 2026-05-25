@@ -360,8 +360,10 @@ class TestConfirmDelivery:
         assert data["order_id"] == str(order.id)
         assert data["aggregated_status"] == OrderStatus.ENTREGADA
         assert data["items"][0]["status"] == OrderItemLogisticStatus.ENTREGADO
-        assert data["items"][0]["status_history"][0]["origin"] == "buyer"
-        assert data["items"][0]["status_history"][0]["new_status"] == OrderItemLogisticStatus.ENTREGADO
+        assert any(
+            event["origin"] == "buyer" and event["new_status"] == OrderItemLogisticStatus.ENTREGADO
+            for event in data["items"][0]["status_history"]
+        )
 
     def test_buyer_cannot_confirm_when_item_is_not_sent_yet(
         self, client: TestClient, db_session: Session
