@@ -51,7 +51,7 @@ La finalización de la compra se da mediante el endpoint de `payment-webhook`. D
 | Método | Ruta | Descripción |
 |--------|------|-------------|
 | GET | `/livez` | Liveness probe — siempre 200 |
-| GET | `/readyz` | Readiness probe — verifica conexión a DB |
+| GET | `/readyz` | Readiness probe — verifica conexión a DB y a los microservicios de carrito, inventario y pagos |
 | GET | `/docs` | Swagger UI (auto-generado) |
 | GET | `/redoc` | ReDoc (auto-generado) |
 
@@ -92,6 +92,7 @@ Los manifiestos en `k8s/` despliegan el microservicio junto con su propia base d
 |------------------|-------------|
 | `CART_SERVICE_URL` | URL base del microservicio de carrito (ej. `http://cart-service:8000`) |
 | `INVENTORY_SERVICE_URL` | URL base del microservicio de inventario |
+| `PAYMENTS_SERVICE_URL` | URL base del microservicio de pagos |
 | `DB_USER` | Usuario de la base de datos |
 | `DB_PASSWORD` | Contraseña de la base de datos |
 | `DB_NAME` | Nombre de la base de datos |
