@@ -19,6 +19,7 @@ from src.api.orders import router as orders_router
 from src.core.config import get_settings
 from src.core.database import Base, engine, wait_for_db
 from src.core.logging import setup_logging
+from src.core.observability import CorrelationIdMiddleware
 from src.models import Order, OrderItem, OrderStatusHistory  # noqa: F401 — register tables
 
 
@@ -45,6 +46,7 @@ app = FastAPI(
     docs_url="/docs",
     redoc_url="/redoc",
 )
+app.add_middleware(CorrelationIdMiddleware)
 
 # ── Error handlers ───────────────────────────────────
 register_error_handlers(app)

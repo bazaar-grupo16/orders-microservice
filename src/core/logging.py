@@ -15,6 +15,7 @@ import sys
 from typing import Optional
 
 from src.core.config import get_settings
+from src.core.observability import ObservabilityJSONFormatter
 
 
 _HEALTH_PROBE_PATHS = {"/livez", "/readyz"}
@@ -46,15 +47,7 @@ def setup_logging(level_override: Optional[str] = None) -> None:
     level_name = (level_override or settings.LOG_LEVEL).upper()
     level = getattr(logging, level_name, logging.INFO)
 
-    formatter = logging.Formatter(
-        fmt=(
-            '{"time":"%(asctime)s",'
-            '"level":"%(levelname)s",'
-            '"logger":"%(name)s",'
-            '"message":"%(message)s"}'
-        ),
-        datefmt="%Y-%m-%dT%H:%M:%S%z",
-    )
+    formatter = ObservabilityJSONFormatter()
 
     handler = logging.StreamHandler(stream=sys.stdout)
     handler.setFormatter(formatter)
