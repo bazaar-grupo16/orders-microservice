@@ -38,6 +38,7 @@ class OrderItem(Base):
     product_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
     seller_id: Mapped[uuid.UUID | None] = mapped_column(nullable=True)
     product_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    category: Mapped[str] = mapped_column(String(100), nullable=False, default="Uncategorized")
     quantity: Mapped[int] = mapped_column(nullable=False)
     unit_price: Mapped[float] = mapped_column(
         Numeric(12, 2), nullable=False,
