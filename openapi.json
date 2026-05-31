@@ -580,7 +580,7 @@
           "Orders"
         ],
         "summary": "Get a specific order for seller",
-        "description": "Retrieve a single order by ID, showing only items sold by the user.\n\nValidates that the order contains at least one item sold by the user.",
+        "description": "Retrieve a single order by ID, showing only items sold by the user.\n    \nValidates that the order contains at least one item sold by the user.",
         "operationId": "get_seller_order_orders_sales__order_id__get",
         "parameters": [
           {
@@ -640,7 +640,7 @@
           "Orders"
         ],
         "summary": "Update item logistic status (Seller)",
-        "description": "Update the logistic status of an order item.\n\nOnly sellers can update items they sold. The transition is validated\nagainst the item logistic state machine.",
+        "description": "Update the logistic status of an order item.\n    \nOnly sellers can update items they sold. The transition is validated\nagainst the item logistic state machine.",
         "operationId": "update_item_status_orders_sales__order_id__items__item_id__status_patch",
         "parameters": [
           {
@@ -720,7 +720,7 @@
           "Orders"
         ],
         "summary": "Get a specific order",
-        "description": "Retrieve a single order by ID.\n\nThe order must belong to the authenticated user.",
+        "description": "Retrieve a single order by ID.\n    \nThe order must belong to the authenticated user.",
         "operationId": "get_order_orders__order_id__get",
         "parameters": [
           {
@@ -849,7 +849,7 @@
           "Orders"
         ],
         "summary": "Update order status (Seller)",
-        "description": "Update the status of an order.\n\nThis endpoint allows sellers to transition an order through its\nfulfillment lifecycle (e.g., CONFIRMADA -> EN_PREPARACION).",
+        "description": "Update the status of an order.\n    \nThis endpoint allows sellers to transition an order through its\nfulfillment lifecycle (e.g., CONFIRMADA -> EN_PREPARACION).",
         "operationId": "update_order_status_orders__order_id__status_patch",
         "parameters": [
           {
@@ -952,10 +952,489 @@
           }
         }
       }
+    },
+    "/admin/orders": {
+      "get": {
+        "tags": [
+          "Admin Orders"
+        ],
+        "summary": "Listar todas las \u00f3rdenes (Administrador)",
+        "operationId": "list_all_orders_admin_admin_orders_get",
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "description": "N\u00famero de p\u00e1gina",
+              "default": 1,
+              "title": "Page"
+            },
+            "description": "N\u00famero de p\u00e1gina"
+          },
+          {
+            "name": "size",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "description": "Tama\u00f1o de p\u00e1gina",
+              "default": 20,
+              "title": "Size"
+            },
+            "description": "Tama\u00f1o de p\u00e1gina"
+          },
+          {
+            "name": "order_status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/OrderStatus"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Filtrar por estado de la orden",
+              "title": "Order Status"
+            },
+            "description": "Filtrar por estado de la orden"
+          },
+          {
+            "name": "X-Is-Admin",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "boolean",
+              "title": "X-Is-Admin"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrderListResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/admin/orders/{order_id}": {
+      "get": {
+        "tags": [
+          "Admin Orders"
+        ],
+        "summary": "Obtener el detalle de cualquier orden",
+        "operationId": "get_order_detail_admin_admin_orders__order_id__get",
+        "parameters": [
+          {
+            "name": "order_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Order Id"
+            }
+          },
+          {
+            "name": "X-Is-Admin",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "boolean",
+              "title": "X-Is-Admin"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrderResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/admin/metrics/orders/summary": {
+      "get": {
+        "tags": [
+          "Metrics"
+        ],
+        "summary": "Resumen financiero y de \u00f3rdenes",
+        "operationId": "get_orders_summary_admin_metrics_orders_summary_get",
+        "parameters": [
+          {
+            "name": "start_date",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date-time",
+              "description": "Fecha de inicio del reporte",
+              "title": "Start Date"
+            },
+            "description": "Fecha de inicio del reporte"
+          },
+          {
+            "name": "end_date",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date-time",
+              "description": "Fecha de fin del reporte",
+              "title": "End Date"
+            },
+            "description": "Fecha de fin del reporte"
+          },
+          {
+            "name": "interval",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "day",
+                "week",
+                "month"
+              ],
+              "type": "string",
+              "description": "Intervalo de la serie de tiempo",
+              "default": "day",
+              "title": "Interval"
+            },
+            "description": "Intervalo de la serie de tiempo"
+          },
+          {
+            "name": "X-Is-Admin",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "boolean",
+              "title": "X-Is-Admin"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrderSummaryMetricResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/admin/metrics/products/top-selling": {
+      "get": {
+        "tags": [
+          "Metrics"
+        ],
+        "summary": "Ranking de productos m\u00e1s vendidos",
+        "operationId": "get_top_selling_products_admin_metrics_products_top_selling_get",
+        "parameters": [
+          {
+            "name": "start_date",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date-time",
+              "description": "Fecha de inicio del reporte",
+              "title": "Start Date"
+            },
+            "description": "Fecha de inicio del reporte"
+          },
+          {
+            "name": "end_date",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date-time",
+              "description": "Fecha de fin del reporte",
+              "title": "End Date"
+            },
+            "description": "Fecha de fin del reporte"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "description": "L\u00edmite de resultados",
+              "default": 10,
+              "title": "Limit"
+            },
+            "description": "L\u00edmite de resultados"
+          },
+          {
+            "name": "X-Is-Admin",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "boolean",
+              "title": "X-Is-Admin"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TopSellingProductsResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/admin/metrics/categories/sales": {
+      "get": {
+        "tags": [
+          "Metrics"
+        ],
+        "summary": "M\u00e9tricas de ventas por categor\u00eda",
+        "operationId": "get_category_sales_admin_metrics_categories_sales_get",
+        "parameters": [
+          {
+            "name": "start_date",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date-time",
+              "description": "Fecha de inicio del reporte",
+              "title": "Start Date"
+            },
+            "description": "Fecha de inicio del reporte"
+          },
+          {
+            "name": "end_date",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date-time",
+              "description": "Fecha de fin del reporte",
+              "title": "End Date"
+            },
+            "description": "Fecha de fin del reporte"
+          },
+          {
+            "name": "X-Is-Admin",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "boolean",
+              "title": "X-Is-Admin"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CategorySalesResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/admin/metrics/orders/export": {
+      "get": {
+        "tags": [
+          "Metrics"
+        ],
+        "summary": "Exportar m\u00e9tricas de \u00f3rdenes, productos o categor\u00edas a CSV",
+        "operationId": "export_orders_metrics_admin_metrics_orders_export_get",
+        "parameters": [
+          {
+            "name": "start_date",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date-time",
+              "description": "Fecha de inicio del reporte",
+              "title": "Start Date"
+            },
+            "description": "Fecha de inicio del reporte"
+          },
+          {
+            "name": "end_date",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date-time",
+              "description": "Fecha de fin del reporte",
+              "title": "End Date"
+            },
+            "description": "Fecha de fin del reporte"
+          },
+          {
+            "name": "metric_type",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "enum": [
+                "orders",
+                "products",
+                "categories"
+              ],
+              "type": "string",
+              "description": "Tipo de m\u00e9trica a exportar",
+              "title": "Metric Type"
+            },
+            "description": "Tipo de m\u00e9trica a exportar"
+          },
+          {
+            "name": "X-Is-Admin",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "boolean",
+              "title": "X-Is-Admin"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
     "schemas": {
+      "CategorySalesItem": {
+        "properties": {
+          "category": {
+            "type": "string",
+            "title": "Category"
+          },
+          "orders_count": {
+            "type": "integer",
+            "title": "Orders Count"
+          },
+          "total_amount": {
+            "type": "number",
+            "title": "Total Amount"
+          }
+        },
+        "type": "object",
+        "required": [
+          "category",
+          "orders_count",
+          "total_amount"
+        ],
+        "title": "CategorySalesItem"
+      },
+      "CategorySalesResponse": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/CategorySalesItem"
+            },
+            "type": "array",
+            "title": "Items"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "title": "CategorySalesResponse"
+      },
       "CreateOrderRequest": {
         "properties": {
           "shipping_address": {
@@ -1167,6 +1646,24 @@
         "title": "OrderListResponse",
         "description": "Paginated list of orders."
       },
+      "OrderMetricSummary": {
+        "properties": {
+          "total_orders_in_period": {
+            "type": "integer",
+            "title": "Total Orders In Period"
+          },
+          "total_amount_in_period": {
+            "type": "number",
+            "title": "Total Amount In Period"
+          }
+        },
+        "type": "object",
+        "required": [
+          "total_orders_in_period",
+          "total_amount_in_period"
+        ],
+        "title": "OrderMetricSummary"
+      },
       "OrderResponse": {
         "properties": {
           "order_id": {
@@ -1354,6 +1851,59 @@
         "title": "OrderStatusHistoryResponse",
         "description": "A status transition event for order-level or item-level flows."
       },
+      "OrderSummaryMetricResponse": {
+        "properties": {
+          "summary": {
+            "$ref": "#/components/schemas/OrderMetricSummary"
+          },
+          "distribution_by_status": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Distribution By Status",
+            "description": "Diccionario clave-valor con estado y cantidad (ej: 'CONFIRMADA': 100)"
+          },
+          "timeseries": {
+            "items": {
+              "$ref": "#/components/schemas/OrderTimeseriesData"
+            },
+            "type": "array",
+            "title": "Timeseries"
+          }
+        },
+        "type": "object",
+        "required": [
+          "summary",
+          "distribution_by_status",
+          "timeseries"
+        ],
+        "title": "OrderSummaryMetricResponse"
+      },
+      "OrderTimeseriesData": {
+        "properties": {
+          "date": {
+            "type": "string",
+            "format": "date",
+            "title": "Date"
+          },
+          "orders_count": {
+            "type": "integer",
+            "title": "Orders Count"
+          },
+          "amount": {
+            "type": "number",
+            "title": "Amount"
+          }
+        },
+        "type": "object",
+        "required": [
+          "date",
+          "orders_count",
+          "amount"
+        ],
+        "title": "OrderTimeseriesData"
+      },
       "PaymentStatus": {
         "type": "string",
         "enum": [
@@ -1446,6 +1996,51 @@
         ],
         "title": "ShippingAddress",
         "description": "Structured shipping address for an order."
+      },
+      "TopSellingProductItem": {
+        "properties": {
+          "product_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Product Id"
+          },
+          "product_name": {
+            "type": "string",
+            "title": "Product Name"
+          },
+          "total_quantity_sold": {
+            "type": "integer",
+            "title": "Total Quantity Sold"
+          },
+          "total_revenue": {
+            "type": "number",
+            "title": "Total Revenue"
+          }
+        },
+        "type": "object",
+        "required": [
+          "product_id",
+          "product_name",
+          "total_quantity_sold",
+          "total_revenue"
+        ],
+        "title": "TopSellingProductItem"
+      },
+      "TopSellingProductsResponse": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/TopSellingProductItem"
+            },
+            "type": "array",
+            "title": "Items"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "title": "TopSellingProductsResponse"
       },
       "UpdateItemStatusRequest": {
         "properties": {
