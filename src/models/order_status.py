@@ -47,8 +47,6 @@ REVENUE_ELIGIBLE_STATUSES: tuple[str, ...] = (
     OrderStatus.EN_PREPARACION.value,
     OrderStatus.ENVIADA.value,
     OrderStatus.ENTREGADA.value,
-    OrderStatus.REEMBOLSO_EN_PROCESO.value,
-    OrderStatus.REEMBOLSO_PROCESADO.value,
 )
 
 
