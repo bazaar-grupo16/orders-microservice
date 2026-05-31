@@ -75,7 +75,19 @@ def get_category_sales(
 
 @router.get(
     "/orders/export",
-    summary="Exportar métricas de órdenes, productos o categorías a CSV",
+    summary="Exportar una sección de métricas a CSV",
+    description=(
+        "Descarga inmediata de un CSV según `metric_type`. "
+        "No genera un único archivo con todo el panel: el backoffice debe "
+        "invocar este endpoint una vez por tipo (`orders`, `products`, `categories`) "
+        "usando el mismo rango de fechas.\n\n"
+        "**Contenido por tipo:**\n"
+        "- `orders`: serie temporal diaria (fecha, cantidad de órdenes, monto). "
+        "No incluye totales del período ni distribución por estado.\n"
+        "- `products`: ranking de productos (hasta 1000 filas).\n"
+        "- `categories`: ventas agrupadas por categoría.\n\n"
+        "Las métricas de usuarios registrados pertenecen al servicio de usuarios."
+    ),
     response_class=Response,
 )
 def export_orders_metrics(

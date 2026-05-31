@@ -1323,7 +1323,8 @@
         "tags": [
           "Metrics"
         ],
-        "summary": "Exportar m\u00e9tricas de \u00f3rdenes, productos o categor\u00edas a CSV",
+        "summary": "Exportar una secci\u00f3n de m\u00e9tricas a CSV",
+        "description": "Descarga inmediata de un CSV seg\u00fan `metric_type`. No genera un \u00fanico archivo con todo el panel: el backoffice debe invocar este endpoint una vez por tipo (`orders`, `products`, `categories`) usando el mismo rango de fechas.\n\n**Contenido por tipo:**\n- `orders`: serie temporal diaria (fecha, cantidad de \u00f3rdenes, monto). No incluye totales del per\u00edodo ni distribuci\u00f3n por estado.\n- `products`: ranking de productos (hasta 1000 filas).\n- `categories`: ventas agrupadas por categor\u00eda.\n\nLas m\u00e9tricas de usuarios registrados pertenecen al servicio de usuarios.",
         "operationId": "export_orders_metrics_admin_metrics_orders_export_get",
         "parameters": [
           {

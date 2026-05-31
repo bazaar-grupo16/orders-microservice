@@ -36,7 +36,11 @@ class TopSellingQueryParams(DateRangeParams):
 
 class ExportMetricsQueryParams(DateRangeParams):
     metric_type: Literal["orders", "products", "categories"] = Field(
-        ..., description="Tipo de métrica a exportar"
+        ..., 
+        description=(
+        "Sección a exportar. Repetir la solicitud con distintos valores "
+        "para obtener los tres CSV del panel de órdenes."
+        ),
     )
 
 
