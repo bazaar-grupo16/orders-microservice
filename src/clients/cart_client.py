@@ -36,6 +36,7 @@ def _normalise_cart_item(raw: dict[str, Any]) -> dict[str, Any]:
         {
             "productId": "uuid",
             "title": "Product Name",
+            "category": "Electronics",
             "unitPrice": {"value": "350.00", "updatedAt": "..."},
             "quantity": 1,
             "stock": 4,
@@ -46,6 +47,7 @@ def _normalise_cart_item(raw: dict[str, Any]) -> dict[str, Any]:
     return {
         "product_id": raw["productId"],
         "product_name": raw["title"],
+        "category": raw.get("category", "Uncategorized"),
         "seller_id": raw.get("sellerId"),  # Optional field
         "quantity": raw["quantity"],
         "unit_price": float(Decimal(raw["unitPrice"]["value"])),
@@ -64,7 +66,7 @@ def get_cart(user_id: str) -> list[dict[str, Any]]:
     -------
     list[dict]
         List of normalised cart items with ``product_id``,
-        ``product_name``, ``quantity``, and ``unit_price`` (float).
+        ``product_name``, ``category``, ``quantity``, and ``unit_price`` (float).
 
     Raises
     ------

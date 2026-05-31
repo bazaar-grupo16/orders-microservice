@@ -41,6 +41,17 @@ class OrderStatus(StrEnum):
     REEMBOLSO_PROCESADO = "REEMBOLSO_PROCESADO"
 
 
+# Order states that represent a successful payment and count toward revenue metrics.
+REVENUE_ELIGIBLE_STATUSES: tuple[str, ...] = (
+    OrderStatus.CONFIRMADA.value,
+    OrderStatus.EN_PREPARACION.value,
+    OrderStatus.ENVIADA.value,
+    OrderStatus.ENTREGADA.value,
+    OrderStatus.REEMBOLSO_EN_PROCESO.value,
+    OrderStatus.REEMBOLSO_PROCESADO.value,
+)
+
+
 class OrderItemLogisticStatus(StrEnum):
     """Logistic state of an individual order item, per vendor.
     

@@ -3,8 +3,6 @@ import io
 import logging
 from datetime import datetime
 
-from fastapi import HTTPException
-
 from src.core.observability import get_correlation_id
 from src.repositories.metrics_repository import MetricsRepository
 from src.schemas.metrics import (
@@ -33,14 +31,6 @@ class MetricsService:
             "Calculando orders summary",
             extra={"request_id": req_id, "params": params.model_dump(mode="json")}
         )
-
-        # validate params
-        if params.start_date > params.end_date:
-            logger.error("Invalid date range", extra={"request_id": req_id})
-            raise HTTPException(status_code=422, detail="Invalid date range")
-        if params.interval not in ["day", "week", "month"]:
-            logger.error("Invalid interval", extra={"request_id": req_id})
-            raise HTTPException(status_code=422, detail="Invalid time interval")
 
         total_orders, total_amount = self.repository.get_orders_summary_totals(
             params.start_date, params.end_date
@@ -86,7 +76,8 @@ class MetricsService:
     def export_metrics_csv(self, params: ExportMetricsQueryParams) -> str:
         req_id = get_correlation_id()
         logger.info(
-            f"Exportando metricas a CSV para tipo: {params.metric_type}",
+            "Exportando metricas a CSV para tipo: %s",
+            params.metric_type,
             extra={"request_id": req_id, "params": params.model_dump(mode="json")}
         )
 
@@ -107,7 +98,12 @@ class MetricsService:
             )
             writer.writerow(["Product ID", "Product Name", "Total Quantity Sold", "Total Revenue"])
             for row in items:
-                writer.writerow([row["product_id"], row["product_name"], row["total_quantity_sold"], row["total_revenue"]])
+                writer.writerow([
+                    row["product_id"],
+                    row["product_name"],
+                    row["total_quantity_sold"],
+                    row["total_revenue"],
+                ])
 
         elif params.metric_type == "categories":
             items = self.repository.get_category_sales(
@@ -116,8 +112,5 @@ class MetricsService:
             writer.writerow(["Category", "Orders Count", "Total Amount"])
             for row in items:
                 writer.writerow([row["category"], row["orders_count"], row["total_amount"]])
-        else:
-            logger.warning(f"Tipo de métrica inválida: {params.metric_type}", extra={"request_id": req_id})
-            raise HTTPException(status_code=400, detail="Tipo de métrica no soportado para exportación")
 
         return output.getvalue()

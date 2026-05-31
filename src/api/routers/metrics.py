@@ -2,6 +2,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Response
 
+from src.api.dependencies.admin_orders import require_admin_role
 from src.api.dependencies.metrics import (
     get_date_range_params,
     get_export_metrics_query_params,
@@ -21,7 +22,11 @@ from src.schemas.metrics import (
 )
 from src.services.metrics_service import MetricsService
 
-router = APIRouter(prefix="/admin/metrics", tags=["Metrics"])
+router = APIRouter(
+    prefix="/admin/metrics",
+    tags=["Metrics"],
+    dependencies=[Depends(require_admin_role)],
+)
 
 
 def get_metrics_service(db: DbSession) -> MetricsService:
