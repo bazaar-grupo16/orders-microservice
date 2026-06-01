@@ -16,6 +16,7 @@ from fastapi import APIRouter, Response, status
 
 from src.core.config import get_settings
 from src.core.database import check_db_connection
+from src.core.observability import build_observability_headers
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +28,11 @@ _READYZ_TIMEOUT = 3.0
 def _check_readyz_endpoint(service_name: str, base_url: str) -> bool:
     """Check that a sibling microservice exposes a healthy ``/readyz`` endpoint."""
     try:
-        response = httpx.get(f"{base_url}/readyz", timeout=_READYZ_TIMEOUT)
+        response = httpx.get(
+            f"{base_url}/readyz",
+            timeout=_READYZ_TIMEOUT,
+            headers=build_observability_headers(),
+        )
     except httpx.HTTPError as exc:
         logger.error("%s readiness check failed: %s", service_name, exc)
         return False

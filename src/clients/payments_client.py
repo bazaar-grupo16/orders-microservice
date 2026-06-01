@@ -17,6 +17,7 @@ from typing import Any
 import httpx
 
 from src.core.config import get_settings
+from src.core.observability import build_observability_headers
 from src.exceptions import PaymentsServiceError
 
 logger = logging.getLogger(__name__)
@@ -67,7 +68,7 @@ def create_preference(
     """
     url = f"{_base_url()}/payments/preferences"
     payload = {"order_id": order_id, "items": items}
-    headers = {"Idempotency-Key": idempotency_key}
+    headers = {"Idempotency-Key": idempotency_key, **build_observability_headers()}
 
     try:
         response = httpx.post(url, json=payload, headers=headers, timeout=_TIMEOUT)
@@ -129,7 +130,12 @@ def request_refund(
     payload = {"order_item_id": order_item_id}
 
     try:
-        response = httpx.post(url, json=payload, timeout=_TIMEOUT)
+        response = httpx.post(
+            url,
+            json=payload,
+            headers=build_observability_headers(),
+            timeout=_TIMEOUT,
+        )
     except httpx.HTTPError as exc:
         logger.error("Payments service unreachable for refund: order=%s item=%s exc=%s", order_id, order_item_id, exc)
         raise PaymentsServiceError("Payments service unreachable") from exc

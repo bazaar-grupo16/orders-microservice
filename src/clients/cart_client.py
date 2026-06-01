@@ -16,6 +16,7 @@ from typing import Any
 import httpx
 
 from src.core.config import get_settings
+from src.core.observability import build_observability_headers
 from src.exceptions import CartEmptyError, ExternalServiceError
 
 logger = logging.getLogger(__name__)
@@ -76,7 +77,11 @@ def get_cart(user_id: str) -> list[dict[str, Any]]:
     user_id = str(user_id)
     url = f"{_base_url()}/cart/{user_id}"
     try:
-        response = httpx.get(url, timeout=_TIMEOUT, headers={"X-User-ID": user_id})
+        response = httpx.get(
+            url,
+            timeout=_TIMEOUT,
+            headers={"X-User-ID": user_id, **build_observability_headers()},
+        )
     except httpx.HTTPError as exc:
         logger.error("Cart service unreachable: %s", exc)
         raise ExternalServiceError("cart-service", "Service unreachable")
@@ -113,7 +118,11 @@ def delete_cart(user_id: str) -> None:
     user_id = str(user_id)
     url = f"{_base_url()}/cart/{user_id}"
     try:
-        response = httpx.delete(url, timeout=_TIMEOUT, headers={"X-User-ID": user_id})
+        response = httpx.delete(
+            url,
+            timeout=_TIMEOUT,
+            headers={"X-User-ID": user_id, **build_observability_headers()},
+        )
     except httpx.HTTPError as exc:
         logger.error("Cart service unreachable on delete: %s", exc)
         raise ExternalServiceError("cart-service", "Service unreachable")
