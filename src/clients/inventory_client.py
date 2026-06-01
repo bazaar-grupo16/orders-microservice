@@ -11,6 +11,7 @@ from typing import Any
 import httpx
 
 from src.core.config import get_settings
+from src.core.observability import build_observability_headers
 from src.exceptions import ExternalServiceError, InsufficientStockError
 
 logger = logging.getLogger(__name__)
@@ -29,7 +30,12 @@ def get_stock_levels(product_ids: list[str]) -> dict[str, int]:
 
     url = f"{_base_url()}/internal/products/stocks"
     try:
-        response = httpx.post(url, json={"product_ids": product_ids}, timeout=_TIMEOUT)
+        response = httpx.post(
+            url,
+            json={"product_ids": product_ids},
+            headers=build_observability_headers(),
+            timeout=_TIMEOUT,
+        )
     except httpx.HTTPError as exc:
         logger.error("Inventory service unreachable on stock lookup: %s", exc)
         raise ExternalServiceError("inventory-service", "Service unreachable")
@@ -68,7 +74,12 @@ def reserve_stock(items: list[dict[str, Any]]) -> None:
     """
     url = f"{_base_url()}/internal/products/stock/reserve"
     try:
-        response = httpx.post(url, json=items, timeout=_TIMEOUT)
+        response = httpx.post(
+            url,
+            json=items,
+            headers=build_observability_headers(),
+            timeout=_TIMEOUT,
+        )
     except httpx.HTTPError as exc:
         logger.error("Inventory service unreachable on reserve: %s", exc)
         raise ExternalServiceError("inventory-service", "Service unreachable")
@@ -118,7 +129,12 @@ def rollback_stock(items: list[dict[str, Any]]) -> None:
 
     url = f"{_base_url()}/internal/products/stock/release"
     try:
-        response = httpx.post(url, json=items, timeout=_TIMEOUT)
+        response = httpx.post(
+            url,
+            json=items,
+            headers=build_observability_headers(),
+            timeout=_TIMEOUT,
+        )
     except httpx.HTTPError as exc:
         logger.error("Inventory service unreachable on rollback: %s", exc)
         return

@@ -14,6 +14,9 @@ spec:
       app: orders-service
   template:
     metadata:
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8000"
       labels:
         app: orders-service
     spec:
@@ -51,14 +54,22 @@ spec:
                 secretKeyRef:
                   name: orders-db-credentials
                   key: DB_NAME
-            # ── External Services (internal K8s DNS) ────
             - name: CART_SERVICE_URL
               value: "http://cart-service"
             - name: INVENTORY_SERVICE_URL
               value: "http://inventory-service"
             - name: PAYMENTS_SERVICE_URL
               value: "http://payments-service"
-          # ── Probes ─────────────────────────────────
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: "http://otel-collector:4317"
+            - name: OTEL_EXPORTER_OTLP_PROTOCOL
+              value: "grpc"
+            - name: OTEL_SERVICE_NAME
+              value: orders-service
+            - name: OTEL_RESOURCE_ATTRIBUTES
+              value: "deployment.environment=dev,k8s.cluster.name=bazaar-dev"
+            - name: OTEL_PROPAGATORS
+              value: "tracecontext,baggage"
           livenessProbe:
             httpGet:
               path: /livez

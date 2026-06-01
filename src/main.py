@@ -22,11 +22,14 @@ from src.core.config import get_settings
 from src.core.database import Base, engine, wait_for_db
 from src.core.logging import setup_logging
 from src.core.observability import CorrelationIdMiddleware
+from src.core.telemetry import initialize_prometheus_metrics, router as metrics_router
 from src.models import Order, OrderItem, OrderStatusHistory  # noqa: F401 — register tables
 
 
 settings = get_settings()
 logger = logging.getLogger(__name__)
+
+initialize_prometheus_metrics()
 
 
 @asynccontextmanager
