@@ -52,8 +52,39 @@ class TestGetCart:
         # Verify normalisation from camelCase to snake_case.
         assert result[0]["product_id"] == product_id
         assert result[0]["product_name"] == "Laptop Gamer"
+        assert result[0]["category"] == "Uncategorized"
         assert result[0]["quantity"] == 1
         assert result[0]["unit_price"] == 1500.00
+
+    @respx.mock
+    def test_normalises_category_when_present(self) -> None:
+        user_id = str(uuid.uuid4())
+        product_id = str(uuid.uuid4())
+        cart_response = {
+            "data": {
+                "userId": user_id,
+                "items": [
+                    {
+                        "productId": product_id,
+                        "title": "Laptop Gamer",
+                        "category": "Electrónica",
+                        "unitPrice": {"value": "1500.00", "updatedAt": "2026-04-24T19:00:00Z"},
+                        "quantity": 1,
+                        "stock": 10,
+                        "status": "active",
+                        "addedAt": "2026-04-24T19:00:00Z",
+                    },
+                ],
+                "totalPrice": {"value": "1500.00", "updatedAt": "2026-04-24T19:00:00Z"},
+            },
+        }
+        respx.get(f"http://cart-service:8000/cart/{user_id}").mock(
+            return_value=httpx.Response(200, json=cart_response),
+        )
+
+        result = cart_client.get_cart(user_id)
+
+        assert result[0]["category"] == "Electrónica"
 
     @respx.mock
     def test_raises_cart_empty_on_404(self) -> None:

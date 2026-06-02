@@ -55,6 +55,24 @@ La finalización de la compra se da mediante el endpoint de `payment-webhook`. D
 | GET | `/docs` | Swagger UI (auto-generado) |
 | GET | `/redoc` | ReDoc (auto-generado) |
 
+
+### Exportación de métricas (admin)
+
+`GET /admin/metrics/orders/export` devuelve **un CSV por invocación**, según `metric_type`.
+
+Para exportar las métricas de órdenes mostradas en el backoffice, realizar **tres llamadas**
+con el mismo `start_date` y `end_date`:
+
+| metric_type   | Archivo generado        | Contenido                                      |
+|---------------|-------------------------|------------------------------------------------|
+| `orders`      | `metrics_orders.csv`    | Serie temporal diaria (no incluye totales ni distribución por estado) |
+| `products`    | `metrics_products.csv`  | Top productos (hasta 1000)                     |
+| `categories`  | `metrics_categories.csv`| Ventas por categoría                           |
+
+Requisito optativo HU “Exportar datos de métricas”: cubierto como descarga inmediata por sección;
+un único CSV con todo el panel no está implementado en esta versión.
+
+
 ---
 
 ## Tests

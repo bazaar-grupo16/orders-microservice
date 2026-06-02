@@ -81,6 +81,7 @@ def _create_order_in_db(
             "product_id": item["product_id"],
             "seller_id": item.get("seller_id"),
             "product_name": item["product_name"],
+            "category": item.get("category", "Uncategorized"),
             "quantity": item["quantity"],
             "unit_price": item["unit_price"],
         }

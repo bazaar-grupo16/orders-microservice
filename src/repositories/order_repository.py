@@ -108,6 +108,29 @@ def list_by_user(
     return orders, total
 
 
+def list_all(
+    db: Session,
+    *,
+    status_filter: str | None = None,
+    offset: int = 0,
+    limit: int = 20,
+) -> tuple[Sequence[Order], int]:
+    """Return a paginated list of all orders in the system."""
+    query = db.query(Order)
+    if status_filter:
+        query = query.filter(Order.status == status_filter)
+
+    total = query.with_entities(func.count(Order.id)).scalar() or 0
+    orders = (
+        query
+        .order_by(Order.created_at.desc())
+        .offset(offset)
+        .limit(limit)
+        .all()
+    )
+    return orders, total
+
+
 def list_by_seller(
     db: Session,
     seller_id: uuid.UUID,

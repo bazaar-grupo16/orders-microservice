@@ -41,6 +41,7 @@ class Order(Base):
         String(30),
         default=OrderStatus.PENDIENTE_DE_PAGO,
         nullable=False,
+        index=True,
     )
     shipping_address: Mapped[dict] = mapped_column(JSON, nullable=False)
     total_amount: Mapped[float] = mapped_column(
@@ -62,7 +63,7 @@ class Order(Base):
 
     # ── Timestamps ────────────────────────────────────
     created_at: Mapped[str] = mapped_column(
-        DateTime(timezone=True), default=utc_now, nullable=False,
+        DateTime(timezone=True), default=utc_now, nullable=False, index=True,
     )
     updated_at: Mapped[str] = mapped_column(
         DateTime(timezone=True), default=utc_now, onupdate=utc_now, nullable=False,
