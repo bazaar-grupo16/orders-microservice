@@ -48,10 +48,17 @@ def create_order(
 
 
 def _reserve_stock(cart_items: list[dict[str, Any]]):
-    reserve_payload = [
-        {"product_id": item["product_id"], "quantity": item["quantity"]}
-        for item in cart_items
-    ]
+    reserve_payload = []
+    for item in cart_items:
+        reserve_item = {
+            "product_id": item["product_id"],
+            "quantity": item["quantity"],
+            "product_name": item["product_name"],
+        }
+        if item.get("seller_id") is not None:
+            reserve_item["seller_id"] = item["seller_id"]
+        reserve_payload.append(reserve_item)
+
     try:
         inventory_client.reserve_stock(reserve_payload)
     except InsufficientStockError:
