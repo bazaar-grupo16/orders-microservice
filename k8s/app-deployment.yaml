@@ -58,6 +58,8 @@ spec:
               value: "http://cart-service"
             - name: INVENTORY_SERVICE_URL
               value: "http://inventory-service"
+            - name: NOTIFICATIONS_SERVICE_URL
+              value: "http://notifications-service"
             - name: PAYMENTS_SERVICE_URL
               value: "http://payments-service"
             - name: OTEL_EXPORTER_OTLP_ENDPOINT
