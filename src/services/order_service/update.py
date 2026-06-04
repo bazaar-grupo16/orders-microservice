@@ -5,6 +5,7 @@ import uuid
 
 from sqlalchemy.orm import Session
 
+from src.clients import notifications_client
 from src.exceptions import OrderAccessDeniedError, OrderNotFoundError
 from src.models.order import Order
 from src.models.order_item import OrderItem
@@ -45,6 +46,7 @@ def update_order_status(
 	)
 
 	_propagate_status_to_items(db, order, target_status.value, origin=origin)
+	_notify_order_status_changed(order, target_status.value, tracking_code)
 
 	return order
 
@@ -72,6 +74,10 @@ def update_item_status(
 		tracking_code=tracking_code,
 		origin="seller",
 	)
+
+	order = order_repository.get_by_id(db, item.order_id)
+	if order is not None:
+		_notify_order_status_changed(order, target_status.value, tracking_code)
 
 	logger.debug(
 		"Item status updated: item=%s old_status=%s new_status=%s tracking=%s",
@@ -112,6 +118,28 @@ def confirm_item_delivery(
 
 	logger.info("Item delivery confirmed: order=%s buyer=%s item=%s", order.id, user_id, item.id)
 	return order_repository.get_by_id(db, order_id)
+
+
+def _notify_order_status_changed(
+	order: Order,
+	new_status: str,
+	tracking_code: str | None = None,
+) -> None:
+	"""Notify order status changes without affecting order persistence."""
+	try:
+		notifications_client.notify_order_status_changed(
+			order_id=order.id,
+			buyer_id=order.user_id,
+			new_status=new_status,
+			tracking_code=tracking_code,
+		)
+	except Exception as exc:
+		logger.warning(
+			"Unexpected notifications client error: order=%s status=%s exc=%s",
+			order.id,
+			new_status,
+			exc,
+		)
 
 
 def _propagate_status_to_items(

@@ -27,6 +27,7 @@ class Settings(BaseSettings):
     # ── External Services (internal K8s URLs) ────────
     CART_SERVICE_URL: str
     INVENTORY_SERVICE_URL: str
+    NOTIFICATIONS_SERVICE_URL: str = ""
     PAYMENTS_SERVICE_URL: str
 
     # ── Pydantic-settings config ─────────────────────

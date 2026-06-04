@@ -5,8 +5,10 @@ Integration tests for ``PATCH /orders/{id}/status`` and item status updates.
 import uuid
 
 from fastapi.testclient import TestClient
+import pytest
 from sqlalchemy.orm import Session
 
+from src.clients import notifications_client
 from src.models.order import Order
 from src.models.order_status import OrderItemLogisticStatus, OrderStatus
 from src.repositories import order_repository
@@ -65,6 +67,66 @@ class TestUpdateOrderStatus:
         data = response.json()
         assert data["order_id"] == str(order.id)
         assert data["status"] == OrderStatus.EN_PREPARACION
+
+    def test_notifies_order_status_change(
+        self,
+        client: TestClient,
+        db_session: Session,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        calls = []
+        order = _create_db_order(db_session, OrderStatus.CONFIRMADA)
+
+        def fake_notify(**kwargs):
+            calls.append(kwargs)
+
+        monkeypatch.setattr(
+            notifications_client,
+            "notify_order_status_changed",
+            fake_notify,
+        )
+
+        response = client.patch(
+            f"/orders/{order.id}/status",
+            json={"status": OrderStatus.EN_PREPARACION},
+            headers={"X-User-Id": "seller-id"},
+        )
+
+        assert response.status_code == 200
+        assert calls == [
+            {
+                "order_id": order.id,
+                "buyer_id": order.user_id,
+                "new_status": OrderStatus.EN_PREPARACION.value,
+                "tracking_code": None,
+            }
+        ]
+
+    def test_notifications_failure_does_not_break_status_update(
+        self,
+        client: TestClient,
+        db_session: Session,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        order = _create_db_order(db_session, OrderStatus.CONFIRMADA)
+
+        def fake_notify(**kwargs):
+            raise RuntimeError("notifications unavailable")
+
+        monkeypatch.setattr(
+            notifications_client,
+            "notify_order_status_changed",
+            fake_notify,
+        )
+
+        response = client.patch(
+            f"/orders/{order.id}/status",
+            json={"status": OrderStatus.EN_PREPARACION},
+            headers={"X-User-Id": "seller-id"},
+        )
+
+        assert response.status_code == 200
+        assert response.json()["status"] == OrderStatus.EN_PREPARACION
 
     def test_updates_tracking_code(
         self, client: TestClient, db_session: Session
@@ -162,6 +224,63 @@ class TestUpdateItemStatus:
         data = response.json()
         assert data["items"][0]["status"] == OrderItemLogisticStatus.EN_PREPARACION
         assert data["aggregated_status"] == OrderStatus.EN_PREPARACION
+
+    def test_item_status_update_notifies_buyer(
+        self,
+        client: TestClient,
+        db_session: Session,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        calls = []
+        buyer = uuid.uuid4()
+        seller = uuid.uuid4()
+
+        def fake_notify(**kwargs):
+            calls.append(kwargs)
+
+        monkeypatch.setattr(
+            notifications_client,
+            "notify_order_status_changed",
+            fake_notify,
+        )
+
+        order = order_repository.create_order(
+            db_session,
+            user_id=buyer,
+            idempotency_key=str(uuid.uuid4()),
+            shipping_address=_VALID_ADDRESS,
+            total_amount=1500.0,
+            status=OrderStatus.PENDIENTE_DE_PAGO,
+            items=[
+                {
+                    "product_id": uuid.uuid4(),
+                    "seller_id": seller,
+                    "product_name": "Test Product",
+                    "quantity": 1,
+                    "unit_price": 1500.0,
+                }
+            ],
+        )
+        item_id = order.items[0].id
+
+        self._confirm_order(client, order.id)
+        calls.clear()
+
+        response = client.patch(
+            f"/orders/sales/{order.id}/items/{item_id}/status",
+            json={"status": OrderStatus.EN_PREPARACION},
+            headers={"X-User-Id": str(seller)},
+        )
+
+        assert response.status_code == 200
+        assert calls == [
+            {
+                "order_id": order.id,
+                "buyer_id": buyer,
+                "new_status": OrderItemLogisticStatus.EN_PREPARACION.value,
+                "tracking_code": None,
+            }
+        ]
 
     def test_seller_can_set_tracking_code_on_item(
         self, client: TestClient, db_session: Session
