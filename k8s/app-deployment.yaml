@@ -62,6 +62,14 @@ spec:
               value: "http://notifications-service"
             - name: PAYMENTS_SERVICE_URL
               value: "http://payments-service"
+            - name: PENDING_PAYMENT_EXPIRATION_ENABLED
+              value: "true"
+            - name: PENDING_PAYMENT_EXPIRATION_MINUTES
+              value: "30"
+            - name: PENDING_PAYMENT_EXPIRATION_BATCH_SIZE
+              value: "50"
+            - name: PENDING_PAYMENT_EXPIRATION_INTERVAL_SECONDS
+              value: "300"
             - name: OTEL_EXPORTER_OTLP_ENDPOINT
               value: "http://otel-collector:4317"
             - name: OTEL_EXPORTER_OTLP_PROTOCOL

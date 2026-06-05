@@ -28,8 +28,10 @@ def payment_status_to_order_status(payment_status: PaymentStatus) -> OrderStatus
 
     if payment_status == PaymentStatus.APPROVED:
         return OrderStatus.CONFIRMADA
-    if payment_status in {PaymentStatus.REJECTED, PaymentStatus.CANCELED, PaymentStatus.REFUNDED}:
+    if payment_status == PaymentStatus.REJECTED:
         return OrderStatus.PAGO_RECHAZADO
+    if payment_status in (PaymentStatus.CANCELED, PaymentStatus.REFUNDED):
+        return OrderStatus.CANCELADA
     return None
 
 

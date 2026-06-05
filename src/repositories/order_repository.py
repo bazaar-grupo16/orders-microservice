@@ -8,6 +8,7 @@ service layer.
 
 import uuid
 from collections.abc import Sequence
+from datetime import datetime
 
 from sqlalchemy import exists, func
 from sqlalchemy.orm import Session
@@ -129,6 +130,23 @@ def list_all(
         .all()
     )
     return orders, total
+
+
+def list_expired_pending_payment_orders(
+    db: Session,
+    *,
+    cutoff: datetime,
+    limit: int,
+) -> Sequence[Order]:
+    """Return pending-payment orders older than the expiration cutoff."""
+    return (
+        db.query(Order)
+        .filter(Order.status == "PENDIENTE_DE_PAGO")
+        .filter(Order.created_at <= cutoff)
+        .order_by(Order.created_at.asc())
+        .limit(limit)
+        .all()
+    )
 
 
 def list_by_seller(
