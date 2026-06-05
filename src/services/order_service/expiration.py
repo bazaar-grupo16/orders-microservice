@@ -5,13 +5,13 @@ from datetime import timedelta
 
 from sqlalchemy.orm import Session
 
-from src.clients import inventory_client
 from src.core.config import get_settings
 from src.core.utils import utc_now
 from src.models.order import Order
 from src.models.order_status import OrderStatus
 from src.repositories import order_repository
-from src.services.order_service.update import _propagate_status_to_items
+from src.schemas.webhook import PaymentStatus
+from src.services.order_service.webhooks import resolve_payment
 
 
 logger = logging.getLogger(__name__)
@@ -42,31 +42,9 @@ def expire_pending_payment_orders(db: Session) -> int:
 
 def _expire_order(db: Session, order: Order) -> None:
     logger.info("Expiring pending payment order=%s", order.id)
-    order = order_repository.update_status(
+    resolve_payment(
         db,
-        order,
-        OrderStatus.PAGO_RECHAZADO,
-        origin="system",
+        order_id=order.id,
+        payment_status=PaymentStatus.CANCELED,
+        transaction_id="expiration_task",
     )
-    _propagate_status_to_items(
-        db,
-        order,
-        OrderStatus.PAGO_RECHAZADO.value,
-        origin="system",
-    )
-    _rollback_stock_for_order(order)
-
-
-def _rollback_stock_for_order(order: Order) -> None:
-    payload = [
-        {"product_id": str(item.product_id), "quantity": item.quantity}
-        for item in order.items
-    ]
-    try:
-        inventory_client.rollback_stock(payload)
-    except Exception as exc:
-        logger.error(
-            "Stock rollback failed for expired pending payment order=%s: %s",
-            order.id,
-            exc,
-        )

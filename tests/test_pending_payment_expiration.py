@@ -62,7 +62,7 @@ def test_expires_old_pending_payment_order(db_session: Session) -> None:
 
     db_session.refresh(order)
     assert expired_count == 1
-    assert order.status == OrderStatus.PAGO_RECHAZADO.value
+    assert order.status == OrderStatus.CANCELADA.value
     assert order.items[0].status == OrderItemLogisticStatus.CANCELADO.value
     assert rollback_route.called
 
@@ -112,5 +112,5 @@ def test_inventory_failure_does_not_break_expiration(db_session: Session) -> Non
 
     db_session.refresh(order)
     assert expired_count == 1
-    assert order.status == OrderStatus.PAGO_RECHAZADO.value
+    assert order.status == OrderStatus.CANCELADA.value
     assert rollback_route.called
