@@ -953,13 +953,13 @@
         }
       }
     },
-    "/admin/orders": {
+    "/orders/admin/orders": {
       "get": {
         "tags": [
           "Admin Orders"
         ],
         "summary": "Listar todas las \u00f3rdenes (Administrador)",
-        "operationId": "list_all_orders_admin_admin_orders_get",
+        "operationId": "list_all_orders_admin_orders_admin_orders_get",
         "parameters": [
           {
             "name": "page",
@@ -1037,13 +1037,13 @@
         }
       }
     },
-    "/admin/orders/{order_id}": {
+    "/orders/admin/orders/{order_id}": {
       "get": {
         "tags": [
           "Admin Orders"
         ],
         "summary": "Obtener el detalle de cualquier orden",
-        "operationId": "get_order_detail_admin_admin_orders__order_id__get",
+        "operationId": "get_order_detail_admin_orders_admin_orders__order_id__get",
         "parameters": [
           {
             "name": "order_id",
@@ -1089,13 +1089,13 @@
         }
       }
     },
-    "/admin/metrics/orders/summary": {
+    "/orders/admin/metrics/orders/summary": {
       "get": {
         "tags": [
           "Metrics"
         ],
         "summary": "Resumen financiero y de \u00f3rdenes",
-        "operationId": "get_orders_summary_admin_metrics_orders_summary_get",
+        "operationId": "get_orders_summary_orders_admin_metrics_orders_summary_get",
         "parameters": [
           {
             "name": "start_date",
@@ -1172,13 +1172,13 @@
         }
       }
     },
-    "/admin/metrics/products/top-selling": {
+    "/orders/admin/metrics/products/top-selling": {
       "get": {
         "tags": [
           "Metrics"
         ],
         "summary": "Ranking de productos m\u00e1s vendidos",
-        "operationId": "get_top_selling_products_admin_metrics_products_top_selling_get",
+        "operationId": "get_top_selling_products_orders_admin_metrics_products_top_selling_get",
         "parameters": [
           {
             "name": "start_date",
@@ -1252,13 +1252,13 @@
         }
       }
     },
-    "/admin/metrics/categories/sales": {
+    "/orders/admin/metrics/categories/sales": {
       "get": {
         "tags": [
           "Metrics"
         ],
         "summary": "M\u00e9tricas de ventas por categor\u00eda",
-        "operationId": "get_category_sales_admin_metrics_categories_sales_get",
+        "operationId": "get_category_sales_orders_admin_metrics_categories_sales_get",
         "parameters": [
           {
             "name": "start_date",
@@ -1318,14 +1318,14 @@
         }
       }
     },
-    "/admin/metrics/orders/export": {
+    "/orders/admin/metrics/orders/export": {
       "get": {
         "tags": [
           "Metrics"
         ],
         "summary": "Exportar una secci\u00f3n de m\u00e9tricas a CSV",
         "description": "Descarga inmediata de un CSV seg\u00fan `metric_type`. No genera un \u00fanico archivo con todo el panel: el backoffice debe invocar este endpoint una vez por tipo (`orders`, `products`, `categories`) usando el mismo rango de fechas.\n\n**Contenido por tipo:**\n- `orders`: serie temporal diaria (fecha, cantidad de \u00f3rdenes, monto). No incluye totales del per\u00edodo ni distribuci\u00f3n por estado.\n- `products`: ranking de productos (hasta 1000 filas).\n- `categories`: ventas agrupadas por categor\u00eda.\n\nLas m\u00e9tricas de usuarios registrados pertenecen al servicio de usuarios.",
-        "operationId": "export_orders_metrics_admin_metrics_orders_export_get",
+        "operationId": "export_orders_metrics_orders_admin_metrics_orders_export_get",
         "parameters": [
           {
             "name": "start_date",

@@ -6,10 +6,10 @@ Only HTTP calls to external services (Cart, Inventory, Payments) are mocked
 via ``respx`` when needed to seed data through the existing checkout flow.
 
 Endpoints under test:
-    GET /admin/metrics/orders/summary
-    GET /admin/metrics/products/top-selling
-    GET /admin/metrics/categories/sales
-    GET /admin/metrics/orders/export
+    GET /orders/admin/metrics/orders/summary
+    GET /orders/admin/metrics/products/top-selling
+    GET /orders/admin/metrics/categories/sales
+    GET /orders/admin/metrics/orders/export
 """
 
 import uuid
@@ -166,7 +166,7 @@ class TestMetricsAdminAuth:
 
     def test_non_admin_returns_403(self, client: TestClient) -> None:
         resp = client.get(
-            "/admin/metrics/orders/summary",
+            "/orders/admin/metrics/orders/summary",
             params=_date_range_params(),
             headers={"X-Is-Admin": "false"},
         )
@@ -174,7 +174,7 @@ class TestMetricsAdminAuth:
 
     def test_missing_admin_header_returns_422(self, client: TestClient) -> None:
         resp = client.get(
-            "/admin/metrics/orders/summary",
+            "/orders/admin/metrics/orders/summary",
             params=_date_range_params(),
         )
         assert resp.status_code == 422
@@ -190,7 +190,7 @@ class TestDateRangeValidation:
         start = end + timedelta(days=1)
         resp = _get_metrics(
             client,
-            "/admin/metrics/orders/summary",
+            "/orders/admin/metrics/orders/summary",
             params={
                 "start_date": start.isoformat(),
                 "end_date": end.isoformat(),
@@ -209,7 +209,7 @@ class TestDateRangeValidation:
         end = datetime.now(timezone.utc)
         resp = _get_metrics(
             client,
-            "/admin/metrics/orders/summary",
+            "/orders/admin/metrics/orders/summary",
             params={
                 "start_date": start.isoformat(),
                 "end_date": end.isoformat(),
@@ -220,7 +220,7 @@ class TestDateRangeValidation:
     def test_missing_start_date_returns_422(self, client: TestClient) -> None:
         resp = _get_metrics(
             client,
-            "/admin/metrics/orders/summary",
+            "/orders/admin/metrics/orders/summary",
             params={"end_date": datetime.now(timezone.utc).isoformat()},
         )
         assert resp.status_code == 422
@@ -228,7 +228,7 @@ class TestDateRangeValidation:
     def test_missing_end_date_returns_422(self, client: TestClient) -> None:
         resp = _get_metrics(
             client,
-            "/admin/metrics/orders/summary",
+            "/orders/admin/metrics/orders/summary",
             params={"start_date": datetime.now(timezone.utc).isoformat()},
         )
         assert resp.status_code == 422
@@ -236,7 +236,7 @@ class TestDateRangeValidation:
     def test_invalid_interval_returns_422(self, client: TestClient) -> None:
         params = _date_range_params()
         params["interval"] = "year"  # not in Literal["day", "week", "month"]
-        resp = _get_metrics(client, "/admin/metrics/orders/summary", params=params)
+        resp = _get_metrics(client, "/orders/admin/metrics/orders/summary", params=params)
         assert resp.status_code == 422
 
     def test_valid_180_day_range_is_accepted(self, client: TestClient) -> None:
@@ -244,20 +244,20 @@ class TestDateRangeValidation:
         end = datetime.now(timezone.utc)
         resp = _get_metrics(
             client,
-            "/admin/metrics/orders/summary",
+            "/orders/admin/metrics/orders/summary",
             params={"start_date": start.isoformat(), "end_date": end.isoformat()},
         )
         assert resp.status_code == 200
 
 
-# ── GET /admin/metrics/orders/summary ────────────────────────
+# ── GET /orders/admin/metrics/orders/summary ────────────────────────
 
 class TestOrdersSummaryEndpoint:
-    """Tests for the /admin/metrics/orders/summary endpoint."""
+    """Tests for the /orders/admin/metrics/orders/summary endpoint."""
 
     def test_returns_200_with_correct_schema_when_no_orders(self, client: TestClient) -> None:
         params = _date_range_params(days_back=1)
-        resp = _get_metrics(client, "/admin/metrics/orders/summary", params=params)
+        resp = _get_metrics(client, "/orders/admin/metrics/orders/summary", params=params)
 
         assert resp.status_code == 200
         body = resp.json()
@@ -274,7 +274,7 @@ class TestOrdersSummaryEndpoint:
         _create_confirmed_order(client, user_id, product_id)
 
         params = _date_range_params(days_back=1)
-        resp = _get_metrics(client, "/admin/metrics/orders/summary", params=params)
+        resp = _get_metrics(client, "/orders/admin/metrics/orders/summary", params=params)
 
         assert resp.status_code == 200
         body = resp.json()
@@ -284,7 +284,7 @@ class TestOrdersSummaryEndpoint:
     def test_pending_orders_do_not_count_toward_revenue(self, client: TestClient) -> None:
         baseline_amount = _get_metrics(
             client,
-            "/admin/metrics/orders/summary",
+            "/orders/admin/metrics/orders/summary",
             params=_date_range_params(days_back=1),
         ).json()["summary"]["total_amount_in_period"]
 
@@ -294,7 +294,7 @@ class TestOrdersSummaryEndpoint:
 
         after = _get_metrics(
             client,
-            "/admin/metrics/orders/summary",
+            "/orders/admin/metrics/orders/summary",
             params=_date_range_params(days_back=1),
         ).json()
 
@@ -307,7 +307,7 @@ class TestOrdersSummaryEndpoint:
         _create_confirmed_order(client, user_id, product_id)
 
         params = _date_range_params(days_back=1)
-        resp = _get_metrics(client, "/admin/metrics/orders/summary", params=params)
+        resp = _get_metrics(client, "/orders/admin/metrics/orders/summary", params=params)
 
         assert resp.status_code == 200
         distribution = resp.json()["distribution_by_status"]
@@ -321,7 +321,7 @@ class TestOrdersSummaryEndpoint:
 
         params = _date_range_params(days_back=7)
         params["interval"] = "day"
-        resp = _get_metrics(client, "/admin/metrics/orders/summary", params=params)
+        resp = _get_metrics(client, "/orders/admin/metrics/orders/summary", params=params)
 
         assert resp.status_code == 200
         timeseries = resp.json()["timeseries"]
@@ -335,14 +335,14 @@ class TestOrdersSummaryEndpoint:
     def test_timeseries_interval_week_returns_200(self, client: TestClient) -> None:
         params = _date_range_params(days_back=30)
         params["interval"] = "week"
-        resp = _get_metrics(client, "/admin/metrics/orders/summary", params=params)
+        resp = _get_metrics(client, "/orders/admin/metrics/orders/summary", params=params)
         assert resp.status_code == 200
         assert isinstance(resp.json()["timeseries"], list)
 
     def test_timeseries_interval_month_returns_200(self, client: TestClient) -> None:
         params = _date_range_params(days_back=90)
         params["interval"] = "month"
-        resp = _get_metrics(client, "/admin/metrics/orders/summary", params=params)
+        resp = _get_metrics(client, "/orders/admin/metrics/orders/summary", params=params)
         assert resp.status_code == 200
         assert isinstance(resp.json()["timeseries"], list)
 
@@ -351,7 +351,7 @@ class TestOrdersSummaryEndpoint:
         request_id = str(uuid.uuid4())
         resp = _get_metrics(
             client,
-            "/admin/metrics/orders/summary",
+            "/orders/admin/metrics/orders/summary",
             params=params,
             headers={"X-Request-ID": request_id},
         )
@@ -359,14 +359,14 @@ class TestOrdersSummaryEndpoint:
         assert resp.headers.get("x-request-id") == request_id
 
 
-# ── GET /admin/metrics/products/top-selling ──────────────────
+# ── GET /orders/admin/metrics/products/top-selling ──────────────────
 
 class TestTopSellingProductsEndpoint:
-    """Tests for the /admin/metrics/products/top-selling endpoint."""
+    """Tests for the /orders/admin/metrics/products/top-selling endpoint."""
 
     def test_returns_200_with_empty_list_when_no_orders(self, client: TestClient) -> None:
         params = _date_range_params(days_back=1)
-        resp = _get_metrics(client, "/admin/metrics/products/top-selling", params=params)
+        resp = _get_metrics(client, "/orders/admin/metrics/products/top-selling", params=params)
 
         assert resp.status_code == 200
         body = resp.json()
@@ -379,7 +379,7 @@ class TestTopSellingProductsEndpoint:
         _create_confirmed_order(client, user_id, product_id)
 
         params = _date_range_params(days_back=1)
-        resp = _get_metrics(client, "/admin/metrics/products/top-selling", params=params)
+        resp = _get_metrics(client, "/orders/admin/metrics/products/top-selling", params=params)
 
         assert resp.status_code == 200
         items = resp.json()["items"]
@@ -395,7 +395,7 @@ class TestTopSellingProductsEndpoint:
     def test_top_selling_respects_limit_param(self, client: TestClient) -> None:
         params = _date_range_params(days_back=30)
         params["limit"] = 2
-        resp = _get_metrics(client, "/admin/metrics/products/top-selling", params=params)
+        resp = _get_metrics(client, "/orders/admin/metrics/products/top-selling", params=params)
 
         assert resp.status_code == 200
         assert len(resp.json()["items"]) <= 2
@@ -403,13 +403,13 @@ class TestTopSellingProductsEndpoint:
     def test_limit_exceeds_max_returns_422(self, client: TestClient) -> None:
         params = _date_range_params()
         params["limit"] = 200  # max is 100 per schema
-        resp = _get_metrics(client, "/admin/metrics/products/top-selling", params=params)
+        resp = _get_metrics(client, "/orders/admin/metrics/products/top-selling", params=params)
         assert resp.status_code == 422
 
     def test_limit_zero_returns_422(self, client: TestClient) -> None:
         params = _date_range_params()
         params["limit"] = 0
-        resp = _get_metrics(client, "/admin/metrics/products/top-selling", params=params)
+        resp = _get_metrics(client, "/orders/admin/metrics/products/top-selling", params=params)
         assert resp.status_code == 422
 
     def test_request_id_propagated_in_response_header(self, client: TestClient) -> None:
@@ -417,7 +417,7 @@ class TestTopSellingProductsEndpoint:
         request_id = str(uuid.uuid4())
         resp = _get_metrics(
             client,
-            "/admin/metrics/products/top-selling",
+            "/orders/admin/metrics/products/top-selling",
             params=params,
             headers={"X-Request-ID": request_id},
         )
@@ -425,14 +425,14 @@ class TestTopSellingProductsEndpoint:
         assert resp.headers.get("x-request-id") == request_id
 
 
-# ── GET /admin/metrics/categories/sales ──────────────────────
+# ── GET /orders/admin/metrics/categories/sales ──────────────────────
 
 class TestCategorySalesEndpoint:
-    """Tests for the /admin/metrics/categories/sales endpoint."""
+    """Tests for the /orders/admin/metrics/categories/sales endpoint."""
 
     def test_returns_200_with_empty_list_when_no_orders(self, client: TestClient) -> None:
         params = _date_range_params(days_back=1)
-        resp = _get_metrics(client, "/admin/metrics/categories/sales", params=params)
+        resp = _get_metrics(client, "/orders/admin/metrics/categories/sales", params=params)
 
         assert resp.status_code == 200
         body = resp.json()
@@ -445,7 +445,7 @@ class TestCategorySalesEndpoint:
         _create_confirmed_order(client, user_id, product_id, category="Electrónica")
 
         params = _date_range_params(days_back=1)
-        resp = _get_metrics(client, "/admin/metrics/categories/sales", params=params)
+        resp = _get_metrics(client, "/orders/admin/metrics/categories/sales", params=params)
 
         assert resp.status_code == 200
         items = resp.json()["items"]
@@ -465,7 +465,7 @@ class TestCategorySalesEndpoint:
         request_id = str(uuid.uuid4())
         resp = _get_metrics(
             client,
-            "/admin/metrics/categories/sales",
+            "/orders/admin/metrics/categories/sales",
             params=params,
             headers={"X-Request-ID": request_id},
         )
@@ -473,15 +473,15 @@ class TestCategorySalesEndpoint:
         assert resp.headers.get("x-request-id") == request_id
 
 
-# ── GET /admin/metrics/orders/export ─────────────────────────
+# ── GET /orders/admin/metrics/orders/export ─────────────────────────
 
 class TestExportEndpoint:
-    """Tests for the /admin/metrics/orders/export endpoint."""
+    """Tests for the /orders/admin/metrics/orders/export endpoint."""
 
     def test_export_orders_returns_csv_content_type(self, client: TestClient) -> None:
         params = _date_range_params()
         params["metric_type"] = "orders"
-        resp = _get_metrics(client, "/admin/metrics/orders/export", params=params)
+        resp = _get_metrics(client, "/orders/admin/metrics/orders/export", params=params)
 
         assert resp.status_code == 200
         assert "text/csv" in resp.headers.get("content-type", "")
@@ -489,7 +489,7 @@ class TestExportEndpoint:
     def test_export_products_returns_csv_content_type(self, client: TestClient) -> None:
         params = _date_range_params()
         params["metric_type"] = "products"
-        resp = _get_metrics(client, "/admin/metrics/orders/export", params=params)
+        resp = _get_metrics(client, "/orders/admin/metrics/orders/export", params=params)
 
         assert resp.status_code == 200
         assert "text/csv" in resp.headers.get("content-type", "")
@@ -497,7 +497,7 @@ class TestExportEndpoint:
     def test_export_categories_returns_csv_content_type(self, client: TestClient) -> None:
         params = _date_range_params()
         params["metric_type"] = "categories"
-        resp = _get_metrics(client, "/admin/metrics/orders/export", params=params)
+        resp = _get_metrics(client, "/orders/admin/metrics/orders/export", params=params)
 
         assert resp.status_code == 200
         assert "text/csv" in resp.headers.get("content-type", "")
@@ -505,7 +505,7 @@ class TestExportEndpoint:
     def test_export_orders_has_correct_csv_headers(self, client: TestClient) -> None:
         params = _date_range_params()
         params["metric_type"] = "orders"
-        resp = _get_metrics(client, "/admin/metrics/orders/export", params=params)
+        resp = _get_metrics(client, "/orders/admin/metrics/orders/export", params=params)
 
         assert resp.status_code == 200
         first_line = resp.text.split("\r\n")[0]
@@ -516,7 +516,7 @@ class TestExportEndpoint:
     def test_export_products_has_correct_csv_headers(self, client: TestClient) -> None:
         params = _date_range_params()
         params["metric_type"] = "products"
-        resp = _get_metrics(client, "/admin/metrics/orders/export", params=params)
+        resp = _get_metrics(client, "/orders/admin/metrics/orders/export", params=params)
 
         assert resp.status_code == 200
         first_line = resp.text.split("\r\n")[0]
@@ -528,7 +528,7 @@ class TestExportEndpoint:
     def test_export_categories_has_correct_csv_headers(self, client: TestClient) -> None:
         params = _date_range_params()
         params["metric_type"] = "categories"
-        resp = _get_metrics(client, "/admin/metrics/orders/export", params=params)
+        resp = _get_metrics(client, "/orders/admin/metrics/orders/export", params=params)
 
         assert resp.status_code == 200
         first_line = resp.text.split("\r\n")[0]
@@ -539,7 +539,7 @@ class TestExportEndpoint:
     def test_export_invalid_metric_type_returns_422(self, client: TestClient) -> None:
         params = _date_range_params()
         params["metric_type"] = "invalid"
-        resp = _get_metrics(client, "/admin/metrics/orders/export", params=params)
+        resp = _get_metrics(client, "/orders/admin/metrics/orders/export", params=params)
         assert resp.status_code == 422
 
     def test_export_includes_data_after_confirmed_order(self, client: TestClient) -> None:
@@ -549,7 +549,7 @@ class TestExportEndpoint:
 
         params = _date_range_params(days_back=1)
         params["metric_type"] = "orders"
-        resp = _get_metrics(client, "/admin/metrics/orders/export", params=params)
+        resp = _get_metrics(client, "/orders/admin/metrics/orders/export", params=params)
 
         assert resp.status_code == 200
         lines = [line for line in resp.text.split("\r\n") if line]
@@ -559,7 +559,7 @@ class TestExportEndpoint:
     def test_export_content_disposition_header_present(self, client: TestClient) -> None:
         params = _date_range_params()
         params["metric_type"] = "orders"
-        resp = _get_metrics(client, "/admin/metrics/orders/export", params=params)
+        resp = _get_metrics(client, "/orders/admin/metrics/orders/export", params=params)
 
         assert resp.status_code == 200
         disposition = resp.headers.get("content-disposition", "")
@@ -572,7 +572,7 @@ class TestExportEndpoint:
         end = datetime.now(timezone.utc)
         resp = _get_metrics(
             client,
-            "/admin/metrics/orders/export",
+            "/orders/admin/metrics/orders/export",
             params={
                 "start_date": start.isoformat(),
                 "end_date": end.isoformat(),
@@ -587,7 +587,7 @@ class TestExportEndpoint:
         request_id = str(uuid.uuid4())
         resp = _get_metrics(
             client,
-            "/admin/metrics/orders/export",
+            "/orders/admin/metrics/orders/export",
             params=params,
             headers={"X-Request-ID": request_id},
         )

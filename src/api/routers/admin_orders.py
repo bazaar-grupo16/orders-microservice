@@ -15,7 +15,7 @@ from src.schemas.order import OrderListResponse, OrderResponse
 from src.services import order_service
 
 router = APIRouter(
-    prefix="/admin/orders",
+    prefix="/orders/admin/orders",
     tags=["Admin Orders"],
     dependencies=[Depends(require_admin_role)],
 )
