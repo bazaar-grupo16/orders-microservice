@@ -4,8 +4,8 @@ Integration tests for admin order endpoints.
 Tests run against a **real PostgreSQL** database (no DB mocking).
 
 Endpoints under test:
-    GET /admin/orders
-    GET /admin/orders/{order_id}
+    GET /orders/admin/orders
+    GET /orders/admin/orders/{order_id}
 """
 
 import uuid
@@ -75,10 +75,10 @@ def _record_status_change(
     return history
 
 
-# ── GET /admin/orders ────────────────────────────────────────
+# ── GET /orders/admin/orders ────────────────────────────────────────
 
 class TestListAdminOrders:
-    """Tests for GET /admin/orders."""
+    """Tests for GET /orders/admin/orders."""
 
     def test_admin_sees_orders_from_all_users(
         self, client: TestClient, db_session: Session
@@ -87,7 +87,7 @@ class TestListAdminOrders:
         _create_db_order(db_session, uuid.uuid4())
         _create_db_order(db_session, uuid.uuid4())
 
-        response = client.get("/admin/orders", headers=_ADMIN_HEADERS)
+        response = client.get("/orders/admin/orders", headers=_ADMIN_HEADERS)
 
         assert response.status_code == 200
         data = response.json()
@@ -102,7 +102,7 @@ class TestListAdminOrders:
         _create_db_order(db_session, uuid.uuid4(), OrderStatus.CONFIRMADA)
 
         response = client.get(
-            "/admin/orders?order_status=CONFIRMADA",
+            "/orders/admin/orders?order_status=CONFIRMADA",
             headers=_ADMIN_HEADERS,
         )
 
@@ -117,7 +117,7 @@ class TestListAdminOrders:
     ) -> None:
         status = OrderStatus.REEMBOLSO_EN_PROCESO
         baseline = client.get(
-            f"/admin/orders?order_status={status}",
+            f"/orders/admin/orders?order_status={status}",
             headers=_ADMIN_HEADERS,
         ).json()["total"]
 
@@ -125,7 +125,7 @@ class TestListAdminOrders:
             _create_db_order(db_session, uuid.uuid4(), status=status)
 
         response = client.get(
-            f"/admin/orders?order_status={status}&page=2&size=2",
+            f"/orders/admin/orders?order_status={status}&page=2&size=2",
             headers=_ADMIN_HEADERS,
         )
 
@@ -140,7 +140,7 @@ class TestListAdminOrders:
         self, client: TestClient
     ) -> None:
         response = client.get(
-            "/admin/orders?order_status=REEMBOLSO_PROCESADO",
+            "/orders/admin/orders?order_status=REEMBOLSO_PROCESADO",
             headers=_ADMIN_HEADERS,
         )
 
@@ -151,7 +151,7 @@ class TestListAdminOrders:
 
     def test_non_admin_returns_403(self, client: TestClient) -> None:
         response = client.get(
-            "/admin/orders",
+            "/orders/admin/orders",
             headers={"X-Is-Admin": "false"},
         )
 
@@ -159,13 +159,13 @@ class TestListAdminOrders:
         assert "administrador" in response.json()["detail"].lower()
 
     def test_missing_admin_header_returns_422(self, client: TestClient) -> None:
-        response = client.get("/admin/orders")
+        response = client.get("/orders/admin/orders")
 
         assert response.status_code == 422
 
     def test_invalid_order_status_returns_422(self, client: TestClient) -> None:
         response = client.get(
-            "/admin/orders?order_status=INVALIDO",
+            "/orders/admin/orders?order_status=INVALIDO",
             headers=_ADMIN_HEADERS,
         )
 
@@ -173,7 +173,7 @@ class TestListAdminOrders:
 
     def test_page_zero_returns_422(self, client: TestClient) -> None:
         response = client.get(
-            "/admin/orders?page=0",
+            "/orders/admin/orders?page=0",
             headers=_ADMIN_HEADERS,
         )
 
@@ -181,17 +181,17 @@ class TestListAdminOrders:
 
     def test_size_zero_returns_422(self, client: TestClient) -> None:
         response = client.get(
-            "/admin/orders?size=0",
+            "/orders/admin/orders?size=0",
             headers=_ADMIN_HEADERS,
         )
 
         assert response.status_code == 422
 
 
-# ── GET /admin/orders/{order_id} ─────────────────────────────
+# ── GET /orders/admin/orders/{order_id} ─────────────────────────────
 
 class TestGetAdminOrderDetail:
-    """Tests for GET /admin/orders/{order_id}."""
+    """Tests for GET /orders/admin/orders/{order_id}."""
 
     def test_admin_can_get_any_order(
         self, client: TestClient, db_session: Session
@@ -200,7 +200,7 @@ class TestGetAdminOrderDetail:
         order = _create_db_order(db_session, owner_id)
 
         response = client.get(
-            f"/admin/orders/{order.id}",
+            f"/orders/admin/orders/{order.id}",
             headers=_ADMIN_HEADERS,
         )
 
@@ -227,7 +227,7 @@ class TestGetAdminOrderDetail:
         )
 
         response = client.get(
-            f"/admin/orders/{order.id}",
+            f"/orders/admin/orders/{order.id}",
             headers=_ADMIN_HEADERS,
         )
 
@@ -243,7 +243,7 @@ class TestGetAdminOrderDetail:
         fake_id = uuid.uuid4()
 
         response = client.get(
-            f"/admin/orders/{fake_id}",
+            f"/orders/admin/orders/{fake_id}",
             headers=_ADMIN_HEADERS,
         )
 
@@ -256,7 +256,7 @@ class TestGetAdminOrderDetail:
         order = _create_db_order(db_session, uuid.uuid4())
 
         response = client.get(
-            f"/admin/orders/{order.id}",
+            f"/orders/admin/orders/{order.id}",
             headers={"X-Is-Admin": "false"},
         )
 
@@ -267,13 +267,13 @@ class TestGetAdminOrderDetail:
     ) -> None:
         order = _create_db_order(db_session, uuid.uuid4())
 
-        response = client.get(f"/admin/orders/{order.id}")
+        response = client.get(f"/orders/admin/orders/{order.id}")
 
         assert response.status_code == 422
 
     def test_malformed_uuid_returns_422(self, client: TestClient) -> None:
         response = client.get(
-            "/admin/orders/not-a-uuid",
+            "/orders/admin/orders/not-a-uuid",
             headers=_ADMIN_HEADERS,
         )
 

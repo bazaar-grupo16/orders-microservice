@@ -23,7 +23,7 @@ from src.schemas.metrics import (
 from src.services.metrics_service import MetricsService
 
 router = APIRouter(
-    prefix="orders/admin/metrics",
+    prefix="/orders/admin/metrics",
     tags=["Metrics"],
     dependencies=[Depends(require_admin_role)],
 )
