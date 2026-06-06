@@ -93,14 +93,14 @@ class TestUpdateOrderStatus:
         )
 
         assert response.status_code == 200
-        assert calls == [
-            {
-                "order_id": order.id,
-                "buyer_id": order.user_id,
-                "new_status": OrderStatus.EN_PREPARACION.value,
-                "tracking_code": None,
-            }
-        ]
+        assert len(calls) == 1
+        call = calls[0]
+        assert call["order_id"] == order.id
+        assert call["buyer_id"] == order.user_id
+        assert call["new_status"] == OrderStatus.EN_PREPARACION.value
+        assert call["tracking_code"] is None
+        assert len(call["order_items"]) == len(order.items)
+        assert call["order_items"][0].id == order.items[0].id
 
     def test_notifications_failure_does_not_break_status_update(
         self,
@@ -240,7 +240,7 @@ class TestUpdateItemStatus:
 
         monkeypatch.setattr(
             notifications_client,
-            "notify_order_status_changed",
+            "notify_order_item_status_changed",
             fake_notify,
         )
 
@@ -273,14 +273,12 @@ class TestUpdateItemStatus:
         )
 
         assert response.status_code == 200
-        assert calls == [
-            {
-                "order_id": order.id,
-                "buyer_id": buyer,
-                "new_status": OrderItemLogisticStatus.EN_PREPARACION.value,
-                "tracking_code": None,
-            }
-        ]
+        assert len(calls) == 1
+        call = calls[0]
+        assert call["item"].id == order.items[0].id
+        assert call["buyer_id"] == buyer
+        assert call["new_status"] == OrderItemLogisticStatus.EN_PREPARACION.value
+        assert call["tracking_code"] is None
 
     def test_seller_can_set_tracking_code_on_item(
         self, client: TestClient, db_session: Session
