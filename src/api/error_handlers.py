@@ -17,6 +17,7 @@ from src.exceptions import (
     OrderAccessDeniedError,
     OrderNotFoundError,
     PaymentsServiceError,
+    DuplicateRequest,
 )
 from src.models.state_machine import InvalidStateTransitionError
 
@@ -99,4 +100,19 @@ def register_error_handlers(app: FastAPI) -> None:
             502,
             "Payment Gateway Error",
             "The payment service is temporarily unavailable. Please try again.",
+        )
+
+    @app.exception_handler(DuplicateRequest)
+    async def duplicate_request_handler(_request: Request, exc: DuplicateRequest) -> JSONResponse:
+        return JSONResponse(
+            status_code=409,
+            content={
+                "type": "about:blank",
+                "title": "Duplicate Request",
+                "status": 409,
+                "detail": "An order with this idempotency key already exists.",
+                "instance": "/orders",
+                "order_id": str(exc.order_id),
+            },
+            media_type=_PROBLEM_JSON,
         )

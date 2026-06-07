@@ -6,6 +6,8 @@ to an ``application/problem+json`` response by the error handlers
 registered in :pymod:`src.api.error_handlers`.
 """
 
+import uuid
+
 
 class OrderNotFoundError(Exception):
     """Raised when an order cannot be found by its ID."""
@@ -21,6 +23,16 @@ class OrderAccessDeniedError(Exception):
     def __init__(self) -> None:
         super().__init__("Access denied to this order")
 
+class DuplicateRequest(Exception):
+    """Raised when a duplicate request is detected via the idempotency key check.
+
+    Contains the key and the pre-existing order ID so the client can query its status.
+    """
+
+    def __init__(self, key: str, order_id: uuid.UUID) -> None:
+        self.key = key
+        self.order_id = order_id
+        super().__init__(f"Duplicate request with idempotency key: {key}")
 
 class InsufficientStockError(Exception):
     """Raised when the Inventory service reports insufficient stock (409)."""

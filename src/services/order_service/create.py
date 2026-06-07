@@ -5,12 +5,13 @@ from typing import Any
 import uuid
 
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import IntegrityError
 
 from src.clients import cart_client, inventory_client, payments_client
-from src.exceptions import InsufficientStockError, PaymentsServiceError
+from src.exceptions import InsufficientStockError, PaymentsServiceError, DuplicateRequest
 from src.models.order import Order
 from src.models.order_status import OrderStatus
-from src.repositories import order_repository
+from src.repositories import order_repository, idempotency_repository
 
 
 logger = logging.getLogger(__name__)
@@ -24,8 +25,12 @@ def create_order(
     shipping_address: dict,
 ) -> Order:
     """Execute the Saga to create a new order and obtain a payment link."""
-    existing = order_repository.get_by_idempotency_key(db, idempotency_key)
-    if existing is not None:
+    try:
+        _resolve_idempotency(db, idempotency_key)
+    except DuplicateRequest as e:
+        existing = order_repository.get_by_idempotency_key(db, idempotency_key)
+        if existing is None:
+            raise e
         logger.info(
             "Idempotent hit: key=%s → order=%s init_point_stored=%s",
             idempotency_key, existing.id, bool(existing.init_point),
@@ -45,6 +50,32 @@ def create_order(
         order.id, order.status, order.preference_id,
     )
     return order
+
+def _resolve_idempotency(db: Session, idempotency_key: str) -> uuid.UUID:
+    existing = idempotency_repository.get(db, idempotency_key)
+
+    if existing is not None:
+        logger.info(
+            "Idempotent hit on get: key=%s -> order_id=%s",
+            idempotency_key,
+            existing.order_id,
+        )
+        raise DuplicateRequest(idempotency_key, existing.order_id)
+
+    order_id = uuid.uuid4()
+
+    try:
+        idempotency_repository.create(db, idempotency_key, order_id)
+    except IntegrityError:
+        logger.warning("Race condition detected for idempotency key=%s", idempotency_key)
+        idempotency_repository.rollback(db)
+        existing = idempotency_repository.get(db, idempotency_key)
+        if existing is not None:
+            raise DuplicateRequest(idempotency_key, existing.order_id)
+        raise
+
+    return order_id
+
 
 
 def _reserve_stock(cart_items: list[dict[str, Any]]):

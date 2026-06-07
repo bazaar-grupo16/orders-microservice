@@ -203,6 +203,8 @@ class TestIdempotency:
         assert first.json()["preference_id"] == second.json()["preference_id"]
 
 
+
+
 class TestMissingHeaders:
     """Requests without required headers must fail."""
 
