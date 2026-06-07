@@ -455,13 +455,13 @@ class TestCategorySalesEndpoint:
         assert len(items) >= 1
 
         # Verify schema
-        first = items[0]
-        assert "category" in first
-        assert "orders_count" in first
-        assert "total_amount" in first
-        assert first["orders_count"] >= 1
-        assert first["total_amount"] > 0
-        assert first["category"] == "Electrónica"
+        item = next((i for i in items if i["category"] == "Electrónica"), None)
+        assert item is not None
+        assert "category" in item
+        assert "orders_count" in item
+        assert "total_amount" in item
+        assert item["orders_count"] >= 1
+        assert item["total_amount"] > 0
 
     def test_request_id_propagated_in_response_header(self, client: TestClient) -> None:
         params = _date_range_params()

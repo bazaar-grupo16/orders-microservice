@@ -24,6 +24,10 @@ from src.core.logging import setup_logging
 from src.core.observability import CorrelationIdMiddleware
 from src.core.telemetry import initialize_prometheus_metrics, router as metrics_router
 from src.models import Order, OrderItem, OrderStatusHistory  # noqa: F401 — register tables
+from src.services.order_service.expiration_worker import (
+    start_pending_payment_expiration_worker,
+    stop_pending_payment_expiration_worker,
+)
 
 
 settings = get_settings()
@@ -41,7 +45,9 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     wait_for_db()
     # Create tables (dev convenience — use Alembic in production).
     Base.metadata.create_all(bind=engine)
+    expiration_worker = start_pending_payment_expiration_worker()
     yield
+    await stop_pending_payment_expiration_worker(expiration_worker)
     logger.info("Shutting down %s", settings.APP_NAME)
 
 

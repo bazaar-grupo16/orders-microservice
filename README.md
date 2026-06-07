@@ -109,6 +109,35 @@ La finalización de la compra se da mediante el endpoint de `payment-webhook`. D
 - **Éxito:** Cambia el estado a `CONFIRMADA` y limpia el carrito del usuario. El stock ya fue descontado en la fase de reserva, por lo que no es necesario aplicar commit al inventario.
 - **Fallo:** Cambia el estado a `PAGO_RECHAZADO` y ejecuta una transacción de **compensación** llamando al endpoint de "release stock" del inventario para liberar los productos reservados.
 
+### Expiración de órdenes pendientes
+
+Si una orden queda en `PENDIENTE_DE_PAGO` y no llega un webhook de pago dentro
+del tiempo configurado, un worker liviano del propio `orders-service` la marca
+como `PAGO_RECHAZADO`, cancela sus items y llama a `inventory-service` para
+devolver el stock reservado.
+
+Variables de configuración:
+
+| Variable | Default | Descripción |
+|----------|---------|-------------|
+| `PENDING_PAYMENT_EXPIRATION_ENABLED` | `true` | Activa el worker de expiración |
+| `PENDING_PAYMENT_EXPIRATION_MINUTES` | `30` | Edad mínima para expirar órdenes pendientes |
+| `PENDING_PAYMENT_EXPIRATION_BATCH_SIZE` | `50` | Cantidad máxima por iteración |
+| `PENDING_PAYMENT_EXPIRATION_INTERVAL_SECONDS` | `300` | Frecuencia del worker |
+
+### Integración con notificaciones
+
+`orders-service` llama de forma best-effort a `notifications-service` cuando una
+orden o item cambia de estado. Si notificaciones está caído, el flujo principal
+de la orden no se rompe; solo se loguea el error.
+
+La URL interna se configura con `NOTIFICATIONS_SERVICE_URL`, cuyo valor esperado
+en Kubernetes es:
+
+```txt
+http://notifications-service
+```
+
 ---
 
 ## Endpoints disponibles
@@ -225,7 +254,12 @@ Los manifiestos en `k8s/` despliegan el microservicio junto con su propia base d
 |------------------|-------------|
 | `CART_SERVICE_URL` | URL base del microservicio de carrito (ej. `http://cart-service:8000`) |
 | `INVENTORY_SERVICE_URL` | URL base del microservicio de inventario |
+| `NOTIFICATIONS_SERVICE_URL` | URL base del microservicio de notificaciones |
 | `PAYMENTS_SERVICE_URL` | URL base del microservicio de pagos |
+| `PENDING_PAYMENT_EXPIRATION_ENABLED` | Activa expiración automática de órdenes pendientes |
+| `PENDING_PAYMENT_EXPIRATION_MINUTES` | Minutos antes de expirar una orden pendiente |
+| `PENDING_PAYMENT_EXPIRATION_BATCH_SIZE` | Batch máximo de expiración |
+| `PENDING_PAYMENT_EXPIRATION_INTERVAL_SECONDS` | Intervalo del worker de expiración |
 | `DB_USER` | Usuario de la base de datos |
 | `DB_PASSWORD` | Contraseña de la base de datos |
 | `DB_NAME` | Nombre de la base de datos |

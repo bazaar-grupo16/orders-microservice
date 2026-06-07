@@ -32,7 +32,12 @@ services:
       DB_NAME: test_db
       CART_SERVICE_URL: http://cart-service:8000
       INVENTORY_SERVICE_URL: http://inventory-service:8000
+      NOTIFICATIONS_SERVICE_URL: http://notifications-service:8000
       PAYMENTS_SERVICE_URL: http://payments-service:8000
+      PENDING_PAYMENT_EXPIRATION_ENABLED: "false"
+      PENDING_PAYMENT_EXPIRATION_MINUTES: "30"
+      PENDING_PAYMENT_EXPIRATION_BATCH_SIZE: "50"
+      PENDING_PAYMENT_EXPIRATION_INTERVAL_SECONDS: "300"
       OTEL_SERVICE_NAME: orders
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
       OTEL_EXPORTER_OTLP_PROTOCOL: grpc

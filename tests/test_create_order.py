@@ -198,6 +198,64 @@ class TestCreateOrderHappyPath:
         request_body = json.loads(payments_route.calls.last.request.content)
         assert request_body["order_id"] == response.json()["order_id"]
 
+    @respx.mock
+    def test_inventory_reserve_includes_notification_metadata(
+        self,
+        client: TestClient,
+    ) -> None:
+        """Orders sends seller/product metadata so Inventory can notify low stock."""
+        user_id = str(uuid.uuid4())
+        seller_id = str(uuid.uuid4())
+        product_id = str(uuid.uuid4())
+        cart_payload = _cart_response(
+            user_id,
+            items=[
+                {
+                    "productId": product_id,
+                    "sellerId": seller_id,
+                    "title": "Monitor 27",
+                    "unitPrice": {
+                        "value": "320.00",
+                        "updatedAt": "2026-04-24T19:00:00Z",
+                    },
+                    "quantity": 2,
+                    "stock": 6,
+                    "status": "active",
+                    "addedAt": "2026-04-24T19:00:00Z",
+                },
+            ],
+        )
+        respx.get(f"http://cart-service:8000/cart/{user_id}").mock(
+            return_value=httpx.Response(200, json=cart_payload),
+        )
+        respx.post("http://inventory-service:8000/internal/products/stocks").mock(
+            return_value=httpx.Response(200, json=_stock_lookup_response(cart_payload)),
+        )
+        inventory_route = respx.post(
+            "http://inventory-service:8000/internal/products/stock/reserve",
+        ).mock(
+            return_value=httpx.Response(200, json={"data": []}),
+        )
+        respx.post("http://payments-service:8000/payments/preferences").mock(
+            return_value=httpx.Response(201, json=_PREFERENCE_RESPONSE),
+        )
+
+        response = _post_order(client, user_id=user_id)
+
+        assert response.status_code == 201
+        order_id = response.json()["order_id"]
+        import json
+        request_body = json.loads(inventory_route.calls.last.request.content)
+        assert request_body == [
+            {
+                "product_id": product_id,
+                "quantity": 2,
+                "order_id": order_id,
+                "product_name": "Monitor 27",
+                "seller_id": seller_id,
+            },
+        ]
+
 
 class TestIdempotency:
     """Duplicate checkout attempts must return the same order and init_point."""

@@ -75,9 +75,7 @@ def update_item_status(
 		origin="seller",
 	)
 
-	order = order_repository.get_by_id(db, item.order_id)
-	if order is not None:
-		_notify_order_status_changed(order, target_status.value, tracking_code)
+	_notify_order_item_status_changed(db, item, new_status, tracking_code)
 
 	logger.debug(
 		"Item status updated: item=%s old_status=%s new_status=%s tracking=%s",
@@ -129,6 +127,7 @@ def _notify_order_status_changed(
 	try:
 		notifications_client.notify_order_status_changed(
 			order_id=order.id,
+			order_items=order.items,
 			buyer_id=order.user_id,
 			new_status=new_status,
 			tracking_code=tracking_code,
@@ -140,6 +139,30 @@ def _notify_order_status_changed(
 			new_status,
 			exc,
 		)
+
+def _notify_order_item_status_changed(
+	db: Session,
+	item: OrderItem,
+	new_status: str,
+	tracking_code: str | None = None,
+) -> None:
+	"""Notify order item status changes without affecting order persistence."""
+	order = order_repository.get_by_id(db, item.order_id)
+	try:
+		notifications_client.notify_order_item_status_changed(
+			item=item,
+			new_status=new_status,
+			buyer_id=order.user_id,
+			tracking_code=tracking_code,
+		)
+	except Exception as exc:
+		logger.warning(
+			"Unexpected notifications client error: order=%s item=%s status=%s exc=%s",
+			item.order_id,
+			item.id,
+			new_status,
+			exc,
+)
 
 
 def _propagate_status_to_items(

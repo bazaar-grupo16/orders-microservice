@@ -83,34 +83,42 @@ class TestListAdminOrders:
     def test_admin_sees_orders_from_all_users(
         self, client: TestClient, db_session: Session
     ) -> None:
+        baseline = client.get("/orders/admin/orders", headers=_ADMIN_HEADERS).json()["total"]
+
         _create_db_order(db_session, uuid.uuid4())
         _create_db_order(db_session, uuid.uuid4())
         _create_db_order(db_session, uuid.uuid4())
 
-        response = client.get("/orders/admin/orders", headers=_ADMIN_HEADERS)
+        response = client.get(f"/orders/admin/orders?size={baseline + 10}", headers=_ADMIN_HEADERS)
 
         assert response.status_code == 200
         data = response.json()
-        assert data["total"] == 3
-        assert len(data["orders"]) == 3
+        assert data["total"] == baseline + 3
+        assert len(data["orders"]) == baseline + 3
 
     def test_filters_by_order_status(
         self, client: TestClient, db_session: Session
     ) -> None:
+        status = OrderStatus.CONFIRMADA
+        baseline = client.get(
+            f"/orders/admin/orders?order_status={status}",
+            headers=_ADMIN_HEADERS,
+        ).json()["total"]
+
         _create_db_order(db_session, uuid.uuid4(), OrderStatus.PENDIENTE_DE_PAGO)
-        _create_db_order(db_session, uuid.uuid4(), OrderStatus.CONFIRMADA)
-        _create_db_order(db_session, uuid.uuid4(), OrderStatus.CONFIRMADA)
+        _create_db_order(db_session, uuid.uuid4(), status)
+        _create_db_order(db_session, uuid.uuid4(), status)
 
         response = client.get(
-            "/orders/admin/orders?order_status=CONFIRMADA",
+            f"/orders/admin/orders?order_status={status}&size={baseline + 10}",
             headers=_ADMIN_HEADERS,
         )
 
         assert response.status_code == 200
         data = response.json()
-        assert data["total"] == 2
-        assert len(data["orders"]) == 2
-        assert all(o["status"] == OrderStatus.CONFIRMADA for o in data["orders"])
+        assert data["total"] == baseline + 2
+        assert len(data["orders"]) == baseline + 2
+        assert all(o["status"] == status for o in data["orders"])
 
     def test_pagination(
         self, client: TestClient, db_session: Session

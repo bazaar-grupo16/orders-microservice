@@ -30,6 +30,12 @@ class Settings(BaseSettings):
     NOTIFICATIONS_SERVICE_URL: str = ""
     PAYMENTS_SERVICE_URL: str
 
+    # ── Pending payment expiration ───────────────────
+    PENDING_PAYMENT_EXPIRATION_ENABLED: bool = True
+    PENDING_PAYMENT_EXPIRATION_MINUTES: int = 30
+    PENDING_PAYMENT_EXPIRATION_BATCH_SIZE: int = 50
+    PENDING_PAYMENT_EXPIRATION_INTERVAL_SECONDS: int = 300
+
     # ── Pydantic-settings config ─────────────────────
     model_config = SettingsConfigDict(
         env_file=".env",
