@@ -15,7 +15,7 @@ from fastapi import FastAPI
 
 from src.api.error_handlers import register_error_handlers
 from src.api.health import router as health_router
-from src.api.orders import router as orders_router
+from src.api.routers.orders import router as orders_router
 from src.api.routers.admin_orders import router as admin_orders_router
 from src.api.routers.metrics import router as admin_metrics_router
 from src.core.config import get_settings

@@ -105,6 +105,9 @@ def _create_confirmed_order(client: TestClient, user_id: str, product_id: str, c
     respx.post("http://inventory-service:8000/internal/products/stock/reserve").mock(
         return_value=httpx.Response(200, json={"data": []})
     )
+    respx.post("http://inventory-service:8000/internal/products/stock/commit").mock(
+        return_value=httpx.Response(200, json={"data": {"order_id": "", "committed_products": []}})
+    )
     respx.post("http://payments-service:8000/payments/preferences").mock(
         return_value=httpx.Response(201, json=_PREFERENCE_RESPONSE)
     )
@@ -452,13 +455,13 @@ class TestCategorySalesEndpoint:
         assert len(items) >= 1
 
         # Verify schema
-        first = items[0]
-        assert "category" in first
-        assert "orders_count" in first
-        assert "total_amount" in first
-        assert first["orders_count"] >= 1
-        assert first["total_amount"] > 0
-        assert first["category"] == "Electrónica"
+        item = next((i for i in items if i["category"] == "Electrónica"), None)
+        assert item is not None
+        assert "category" in item
+        assert "orders_count" in item
+        assert "total_amount" in item
+        assert item["orders_count"] >= 1
+        assert item["total_amount"] > 0
 
     def test_request_id_propagated_in_response_header(self, client: TestClient) -> None:
         params = _date_range_params()

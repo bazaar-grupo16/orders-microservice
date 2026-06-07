@@ -84,9 +84,14 @@ def _create_multi_item_order(
 
 
 def _mock_cancel_side_effects(order_id: uuid.UUID):
+    def release_check(request):
+        data = json.loads(request.read())
+        assert data == {"order_id": str(order_id)}
+        return httpx.Response(200)
+
     rollback_route = respx.post(
         "http://inventory-service:8000/internal/products/stock/release"
-    ).mock(return_value=httpx.Response(200))
+    ).mock(side_effect=release_check)
     refund_route = respx.post(
         f"http://payments-service:8000/payments/{order_id}/refund"
     ).mock(return_value=httpx.Response(200))
@@ -240,9 +245,14 @@ class TestCancelOrderBySeller:
         )
         assert confirm_response.status_code == 200
 
+        def release_check(request):
+            data = json.loads(request.read())
+            assert data == {"order_id": str(order.id)}
+            return httpx.Response(200)
+
         rollback_route = respx.post(
             "http://inventory-service:8000/internal/products/stock/release"
-        ).mock(return_value=httpx.Response(200))
+        ).mock(side_effect=release_check)
         refund_route = respx.post(
             f"http://payments-service:8000/payments/{order.id}/refund"
         ).mock(return_value=httpx.Response(200))
