@@ -106,7 +106,7 @@ def resolve_refund(
 def _on_payment_success(order: Order) -> None:
 	"""Side effects after a successful payment (best effort)."""
 	try:
-		inventory_client.commit_stock(order.idempotency_key)
+		inventory_client.commit_stock(order.id)
 	except Exception:
 		logger.error(
 			"Stock commit failed for order=%s. Manual intervention required.",
@@ -125,8 +125,7 @@ def _on_payment_success(order: Order) -> None:
 def _on_payment_failed(order: Order) -> None:
 	"""Compensation after a failed payment (best effort)."""
 	try:
-		payload = [{"product_id": str(i.product_id), "quantity": i.quantity} for i in order.items]
-		inventory_client.rollback_stock(payload)
+		inventory_client.release_stock(order.id)
 	except Exception:
 		logger.error(
 			"Stock rollback failed for order=%s. Manual intervention required.",

@@ -190,11 +190,10 @@ def _request_refunds_for_order(db: Session, order: Order) -> None:
 
 
 def _rollback_stock_for_items(items: list[OrderItem]) -> None:
+    if not items:
+        return
     try:
-        payload = [
-            {"product_id": str(item.product_id), "quantity": item.quantity}
-            for item in items
-        ]
-        inventory_client.rollback_stock(payload)
+        order_id = items[0].order_id
+        inventory_client.release_stock(order_id)
     except Exception:
         logger.error("Stock rollback failed for cancelled order item(s).")

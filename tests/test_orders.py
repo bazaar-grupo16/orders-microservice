@@ -86,8 +86,17 @@ def _mock_happy_path(user_id: str) -> None:
     respx.post("http://inventory-service:8000/internal/products/stocks").mock(
         return_value=httpx.Response(200, json=_stock_lookup_response(cart_payload)),
     )
+
+    def reserve_side_effect(request):
+        import json
+        data = json.loads(request.read())
+        for item in data:
+            assert "order_id" in item
+            assert uuid.UUID(item["order_id"])
+        return httpx.Response(200, json={"data": {}})
+
     respx.post("http://inventory-service:8000/internal/products/stock/reserve").mock(
-        return_value=httpx.Response(200, json={"data": []}),
+        side_effect=reserve_side_effect
     )
     respx.post("http://payments-service:8000/payments/preferences").mock(
         return_value=httpx.Response(201, json=_PREFERENCE_RESPONSE),

@@ -25,8 +25,10 @@ def create_order(
     shipping_address: dict,
 ) -> Order:
     """Execute the Saga to create a new order and obtain a payment link."""
+    order_id = uuid.uuid4()
+
     try:
-        _resolve_idempotency(db, idempotency_key)
+        order_id = _resolve_idempotency(db, idempotency_key, order_id)
     except DuplicateRequest as e:
         existing = order_repository.get_by_idempotency_key(db, idempotency_key)
         if existing is None:
@@ -39,11 +41,11 @@ def create_order(
 
     cart_items = cart_client.get_cart(user_id)
     
-    reserve_payload = _reserve_stock(cart_items)
+    _reserve_stock(order_id, cart_items)
 
-    order = _create_order_in_db(db, user_id, idempotency_key, shipping_address, cart_items, reserve_payload)
+    order = _create_order_in_db(db, order_id, user_id, idempotency_key, shipping_address, cart_items)
 
-    order = _create_order_payment_preference(db, order, idempotency_key, reserve_payload)
+    order = _create_order_payment_preference(db, order, idempotency_key)
 
     logger.info(
         "Order created: id=%s status=%s preference_id=%s",
@@ -51,7 +53,7 @@ def create_order(
     )
     return order
 
-def _resolve_idempotency(db: Session, idempotency_key: str) -> uuid.UUID:
+def _resolve_idempotency(db: Session, idempotency_key: str, order_id: uuid.UUID) -> uuid.UUID:
     existing = idempotency_repository.get(db, idempotency_key)
 
     if existing is not None:
@@ -61,8 +63,6 @@ def _resolve_idempotency(db: Session, idempotency_key: str) -> uuid.UUID:
             existing.order_id,
         )
         raise DuplicateRequest(idempotency_key, existing.order_id)
-
-    order_id = uuid.uuid4()
 
     try:
         idempotency_repository.create(db, idempotency_key, order_id)
@@ -78,13 +78,9 @@ def _resolve_idempotency(db: Session, idempotency_key: str) -> uuid.UUID:
 
 
 
-def _reserve_stock(cart_items: list[dict[str, Any]]):
-    reserve_payload = [
-        {"product_id": item["product_id"], "quantity": item["quantity"]}
-        for item in cart_items
-    ]
+def _reserve_stock(order_id: uuid.UUID, cart_items: list[dict[str, Any]]) -> None:
     try:
-        inventory_client.reserve_stock(reserve_payload)
+        inventory_client.reserve_stock(order_id, cart_items)
     except InsufficientStockError:
         product_ids = [str(item["product_id"]) for item in cart_items]
         stock_levels = _get_stock_levels(product_ids)
@@ -95,15 +91,14 @@ def _reserve_stock(cart_items: list[dict[str, Any]]):
                 items=insufficient_items,
             )
         raise
-    return reserve_payload
 
 def _create_order_in_db(
         db: Session,
+        order_id: uuid.UUID,
         user_id: uuid.UUID,
         idempotency_key: str,
         shipping_address: dict,
         cart_items: list[dict[str, Any]],
-        reserve_payload: list[dict[str, Any]],
 ) -> Order:
     total_amount = sum(item["unit_price"] * item["quantity"] for item in cart_items)
 
@@ -128,11 +123,12 @@ def _create_order_in_db(
             total_amount=total_amount,
             status=OrderStatus.PENDIENTE_DE_PAGO,
             items=order_items,
+            order_id=order_id,
         )
     except Exception:
         logger.error("Order persistence failed — rolling back stock reservation")
         try:
-            inventory_client.rollback_stock(reserve_payload)
+            inventory_client.release_stock(order_id)
         except Exception:
             logger.critical(
                 "CRITICAL: Stock rollback failed for key=%s. Manual intervention required.",
@@ -144,7 +140,6 @@ def _create_order_payment_preference(
         db: Session,
         order: Order,
         idempotency_key: str,
-        reserve_payload: list[dict[str, Any]],
 ) -> Order:
     preference_items = [
         {
@@ -168,7 +163,7 @@ def _create_order_payment_preference(
             order.id,
         )
         try:
-            inventory_client.rollback_stock(reserve_payload)
+            inventory_client.release_stock(order.id)
         except Exception:
             logger.critical(
                 "CRITICAL: Stock rollback failed after Payments error for key=%s. Manual intervention required.",

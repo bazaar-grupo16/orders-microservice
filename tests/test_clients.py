@@ -176,6 +176,7 @@ class TestReserveStock:
 
     @respx.mock
     def test_succeeds_on_200(self) -> None:
+        order_id = uuid.uuid4()
         p1 = str(uuid.uuid4())
         p2 = str(uuid.uuid4())
         items = [
@@ -183,14 +184,23 @@ class TestReserveStock:
             {"product_id": p2, "quantity": 1},
         ]
         
-        respx.post("http://inventory-service:8000/internal/products/stock/reserve").mock(
-            return_value=httpx.Response(200, json={"data": []}),
+        reserve_route = respx.post("http://inventory-service:8000/internal/products/stock/reserve").mock(
+            return_value=httpx.Response(200, json={"data": {p1: 2, p2: 1}}),
         )
 
-        inventory_client.reserve_stock(items)
+        res = inventory_client.reserve_stock(order_id, items)
+        assert reserve_route.called
+        req_json = reserve_route.calls.last.request.read()
+        import json
+        req_data = json.loads(req_json)
+        assert len(req_data) == 2
+        assert req_data[0]["order_id"] == str(order_id)
+        assert req_data[1]["order_id"] == str(order_id)
+        assert res == {"data": {p1: 2, p2: 1}}
 
     @respx.mock
     def test_raises_insufficient_stock_on_409(self) -> None:
+        order_id = uuid.uuid4()
         p1 = str(uuid.uuid4())
         items = [{"product_id": p1, "quantity": 999}]
         respx.post("http://inventory-service:8000/internal/products/stock/reserve").mock(
@@ -198,11 +208,12 @@ class TestReserveStock:
         )
 
         with pytest.raises(InsufficientStockError) as exc_info:
-            inventory_client.reserve_stock(items)
+            inventory_client.reserve_stock(order_id, items)
         assert "Not enough stock" in exc_info.value.detail
 
     @respx.mock
     def test_raises_external_error_on_500(self) -> None:
+        order_id = uuid.uuid4()
         p1 = str(uuid.uuid4())
         items = [{"product_id": p1, "quantity": 1}]
         respx.post("http://inventory-service:8000/internal/products/stock/reserve").mock(
@@ -210,10 +221,11 @@ class TestReserveStock:
         )
 
         with pytest.raises(ExternalServiceError):
-            inventory_client.reserve_stock(items)
+            inventory_client.reserve_stock(order_id, items)
 
     @respx.mock
     def test_raises_external_error_on_timeout(self) -> None:
+        order_id = uuid.uuid4()
         p1 = str(uuid.uuid4())
         items = [{"product_id": p1, "quantity": 1}]
         respx.post("http://inventory-service:8000/internal/products/stock/reserve").mock(
@@ -221,10 +233,11 @@ class TestReserveStock:
         )
 
         with pytest.raises(ExternalServiceError):
-            inventory_client.reserve_stock(items)
+            inventory_client.reserve_stock(order_id, items)
 
     @respx.mock
     def test_does_not_release_on_batch_insufficient_stock(self) -> None:
+        order_id = uuid.uuid4()
         p1 = str(uuid.uuid4())
         p2 = str(uuid.uuid4())
         items = [
@@ -240,7 +253,7 @@ class TestReserveStock:
         )
 
         with pytest.raises(InsufficientStockError):
-            inventory_client.reserve_stock(items)
+            inventory_client.reserve_stock(order_id, items)
             
         assert not release_mock.called
 
@@ -248,32 +261,73 @@ class TestReserveStock:
 class TestCommitStock:
     """Tests for ``inventory_client.commit_stock``."""
 
-    def test_does_nothing(self) -> None:
-        # Should not raise any error
-        inventory_client.commit_stock("res-123")
+    @respx.mock
+    def test_succeeds_on_200(self) -> None:
+        order_id = uuid.uuid4()
+        commit_mock = respx.post("http://inventory-service:8000/internal/products/stock/commit").mock(
+            return_value=httpx.Response(200, json={"data": {"order_id": str(order_id), "committed_products": []}}),
+        )
+
+        res = inventory_client.commit_stock(order_id)
+        assert commit_mock.called
+        assert res["data"]["order_id"] == str(order_id)
+
+    @respx.mock
+    def test_non_fatal_on_404(self) -> None:
+        order_id = uuid.uuid4()
+        commit_mock = respx.post("http://inventory-service:8000/internal/products/stock/commit").mock(
+            return_value=httpx.Response(404, json={"detail": "Reservation not found"}),
+        )
+
+        res = inventory_client.commit_stock(order_id)
+        assert commit_mock.called
+        assert res == {}
+
+    @respx.mock
+    def test_raises_external_error_on_500(self) -> None:
+        order_id = uuid.uuid4()
+        respx.post("http://inventory-service:8000/internal/products/stock/commit").mock(
+            return_value=httpx.Response(500),
+        )
+
+        with pytest.raises(ExternalServiceError):
+            inventory_client.commit_stock(order_id)
 
 
-class TestRollbackStock:
-    """Tests for ``inventory_client.rollback_stock``."""
+class TestReleaseStock:
+    """Tests for ``inventory_client.release_stock``."""
 
     @respx.mock
     def test_succeeds_on_200(self) -> None:
-        p1 = str(uuid.uuid4())
-        respx.post("http://inventory-service:8000/internal/products/stock/release").mock(
-            return_value=httpx.Response(200),
+        order_id = uuid.uuid4()
+        release_mock = respx.post("http://inventory-service:8000/internal/products/stock/release").mock(
+            return_value=httpx.Response(200, json={"data": {}}),
         )
 
-        inventory_client.rollback_stock([{"product_id": p1, "quantity": 1}])
+        res = inventory_client.release_stock(order_id)
+        assert release_mock.called
+        assert res == {"data": {}}
 
     @respx.mock
-    def test_logs_error_on_failure_but_continues(self) -> None:
-        p1 = str(uuid.uuid4())
+    def test_succeeds_on_204(self) -> None:
+        order_id = uuid.uuid4()
+        release_mock = respx.post("http://inventory-service:8000/internal/products/stock/release").mock(
+            return_value=httpx.Response(204),
+        )
+
+        res = inventory_client.release_stock(order_id)
+        assert release_mock.called
+        assert res == {}
+
+    @respx.mock
+    def test_raises_external_error_on_500(self) -> None:
+        order_id = uuid.uuid4()
         respx.post("http://inventory-service:8000/internal/products/stock/release").mock(
             return_value=httpx.Response(500),
         )
 
-        # Should not raise exception
-        inventory_client.rollback_stock([{"product_id": p1, "quantity": 1}])
+        with pytest.raises(ExternalServiceError):
+            inventory_client.release_stock(order_id)
 
 
 # ── Payments Client ────────────────────────────────────────────────

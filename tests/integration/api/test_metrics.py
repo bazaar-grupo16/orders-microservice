@@ -105,6 +105,9 @@ def _create_confirmed_order(client: TestClient, user_id: str, product_id: str, c
     respx.post("http://inventory-service:8000/internal/products/stock/reserve").mock(
         return_value=httpx.Response(200, json={"data": []})
     )
+    respx.post("http://inventory-service:8000/internal/products/stock/commit").mock(
+        return_value=httpx.Response(200, json={"data": {"order_id": "", "committed_products": []}})
+    )
     respx.post("http://payments-service:8000/payments/preferences").mock(
         return_value=httpx.Response(201, json=_PREFERENCE_RESPONSE)
     )

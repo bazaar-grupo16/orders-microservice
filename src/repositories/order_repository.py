@@ -25,6 +25,7 @@ def create_order(
     total_amount: float,
     status: str,
     items: list[dict],
+    order_id: uuid.UUID | None = None,
 ) -> Order:
     """Persist a new order with its line-items.
 
@@ -34,13 +35,17 @@ def create_order(
         List of dicts with keys ``product_id``, ``product_name``,
         ``quantity``, ``unit_price``.
     """
-    order = Order(
-        user_id=user_id,
-        idempotency_key=idempotency_key,
-        shipping_address=shipping_address,
-        total_amount=total_amount,
-        status=status,
-    )
+    order_kwargs = {
+        "user_id": user_id,
+        "idempotency_key": idempotency_key,
+        "shipping_address": shipping_address,
+        "total_amount": total_amount,
+        "status": status,
+    }
+    if order_id is not None:
+        order_kwargs["id"] = order_id
+
+    order = Order(**order_kwargs)
     for item_data in items:
         order.items.append(OrderItem(**item_data))
 
