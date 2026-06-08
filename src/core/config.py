@@ -36,6 +36,13 @@ class Settings(BaseSettings):
     PENDING_PAYMENT_EXPIRATION_BATCH_SIZE: int = 50
     PENDING_PAYMENT_EXPIRATION_INTERVAL_SECONDS: int = 300
 
+    # ── Transactional Outbox ─────────────────────────
+    OUTBOX_WORKER_ENABLED: bool = True
+    OUTBOX_WORKER_INTERVAL_SECONDS: int = 30
+    OUTBOX_WORKER_BATCH_SIZE: int = 20
+    OUTBOX_MAX_ATTEMPTS: int = 5
+
+
     # ── Pydantic-settings config ─────────────────────
     model_config = SettingsConfigDict(
         env_file=".env",

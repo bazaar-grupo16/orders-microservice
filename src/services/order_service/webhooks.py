@@ -5,14 +5,16 @@ import uuid
 
 from sqlalchemy.orm import Session
 
-from src.clients import cart_client, inventory_client
 from src.exceptions import OrderNotFoundError
 from src.models.order import Order
 from src.models.order_status import OrderItemLogisticStatus, OrderStatus
 from src.models.state_machine import validate_item_transition, validate_transition
 from src.repositories import order_repository
+from src.repositories.outbox_repository import OutboxRepository
 from src.schemas.webhook import PaymentStatus, RefundStatus, payment_status_to_order_status
-from src.services.order_service.update import update_order_status
+from src.services.outbox_worker import process_order_outbox_synchronously
+
+
 
 
 logger = logging.getLogger(__name__)
@@ -40,17 +42,24 @@ def resolve_payment(
 
 	validate_transition(OrderStatus(order.status), target_status)
 
-	update_order_status(
-		db,
-		order_id=order.id,
-		new_status=target_status.value,
-		origin="webhook",
-	)
-
 	if payment_status == PaymentStatus.APPROVED:
-		_on_payment_success(order)
+		OutboxRepository.insert(db, "PAYMENT_SUCCESS", {
+			"order_id": str(order.id),
+			"user_id": str(order.user_id),
+			"status": target_status.value,
+		})
 	else:
-		_on_payment_failed(order)
+		OutboxRepository.insert(db, "PAYMENT_FAILED", {
+			"order_id": str(order.id),
+			"status": target_status.value,
+		})
+
+	db.commit()
+
+	try:
+		process_order_outbox_synchronously(db, order.id)
+	except Exception as exc:
+		logger.warning("Inline outbox processing failed for order %s: %s", order.id, exc)
 
 	return order_repository.get_by_id(db, order_id)
 
@@ -100,34 +109,4 @@ def resolve_refund(
 			order,
 			OrderStatus.REEMBOLSO_PROCESADO,
 			origin="webhook",
-		)
-
-
-def _on_payment_success(order: Order) -> None:
-	"""Side effects after a successful payment (best effort)."""
-	try:
-		inventory_client.commit_stock(order.id)
-	except Exception:
-		logger.error(
-			"Stock commit failed for order=%s. Manual intervention required.",
-			order.id,
-		)
-
-	try:
-		cart_client.delete_cart(str(order.user_id))
-	except Exception:
-		logger.error(
-			"Cart clear failed for user=%s after order=%s.",
-			order.user_id, order.id,
-		)
-
-
-def _on_payment_failed(order: Order) -> None:
-	"""Compensation after a failed payment (best effort)."""
-	try:
-		inventory_client.release_stock(order.id)
-	except Exception:
-		logger.error(
-			"Stock rollback failed for order=%s. Manual intervention required.",
-			order.id,
 		)
