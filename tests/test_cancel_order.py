@@ -98,6 +98,9 @@ def _mock_cancel_side_effects(order_id: uuid.UUID):
     refund_route = respx.post(
         f"http://payments-service:8000/payments/{order_id}/refund"
     ).mock(return_value=httpx.Response(200))
+    respx.post(
+        f"http://payments-service:8000/payments/{order_id}/cancel"
+    ).mock(return_value=httpx.Response(200))
     return rollback_route, item_rollback_route, refund_route
 
 
@@ -191,6 +194,38 @@ class TestCancelOrderByBuyer:
         assert not refund_route.called
         assert any(event["new_status"] == OrderStatus.CANCELADA for event in data["status_history"])
         assert {item["product_id"] for item in data["items"]} == set(product_ids)
+    @respx.mock
+    def test_cancelling_pending_order_cancells_payment(
+        self,
+        client: TestClient,
+        db_session: Session,
+    ) -> None:
+        buyer_id = uuid.uuid4()
+        seller_id = uuid.uuid4()
+        order = _create_order(db_session, buyer_id=buyer_id, seller_id=seller_id, status=OrderStatus.PENDIENTE_DE_PAGO)
+        rollback_route, _, refund_route = _mock_cancel_side_effects(order.id)
+
+        cancel_payment_route = respx.post(
+            f"http://payments-service:8000/payments/{order.id}/cancel"
+        ).mock(return_value=httpx.Response(200))
+
+        response = client.post(
+            f"/orders/{order.id}/cancel",
+            headers={"X-User-Id": str(buyer_id)},
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["status"] == OrderStatus.CANCELADA
+        assert data["items"][0]["status"] == OrderItemLogisticStatus.CANCELADO
+        assert any(event["new_status"] == OrderStatus.CANCELADA for event in data["status_history"])
+        assert any(
+            event["new_status"] == OrderItemLogisticStatus.CANCELADO
+            for event in data["items"][0]["status_history"]
+        )
+        assert rollback_route.called
+        assert not refund_route.called
+        assert cancel_payment_route.called
 
 
 class TestCancelOrderBySeller:
@@ -248,6 +283,10 @@ class TestCancelOrderBySeller:
             "http://inventory-service:8000/internal/products/stock/release"
         ).mock(side_effect=release_check)
 
+        cancel_payment_route = respx.post(
+            f"http://payments-service:8000/payments/{order.id}/cancel"
+        ).mock(return_value=httpx.Response(200))
+
         response = client.post(
             f"/orders/{order.id}/cancel",
             headers={"X-User-Id": str(buyer_id)},
@@ -255,6 +294,7 @@ class TestCancelOrderBySeller:
 
         assert response.status_code == 200
         assert rollback_route.called
+        assert cancel_payment_route.called
 
     @respx.mock
     def test_cancels_one_item_and_keeps_order_open_when_others_remain(

@@ -5,7 +5,7 @@ import uuid
 
 from sqlalchemy.orm import Session
 
-from src.clients import inventory_client
+from src.clients import inventory_client, payments_client
 from src.exceptions import (
     OrderAccessDeniedError,
     OrderNotFoundError,
@@ -62,7 +62,9 @@ def cancel_order(
 
     _rollback_stock_for_order(order.id)
 
-    if previous_status != OrderStatus.PENDIENTE_DE_PAGO:
+    if previous_status == OrderStatus.PENDIENTE_DE_PAGO:
+        payments_client.cancel_pending_payment(str(order.id))
+    else:
         _request_refunds_for_order(db, order)
 
     return order_repository.get_by_id(db, order_id)

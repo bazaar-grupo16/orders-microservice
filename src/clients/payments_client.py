@@ -159,3 +159,34 @@ def request_refund(
         response.status_code, order_id, order_item_id, detail,
     )
     raise PaymentsServiceError(detail)
+
+def cancel_pending_payment(order_id: str) -> None:
+    """Cancel a pending payment via the Payments microservice."""
+    url = f"{_base_url()}/payments/{order_id}/cancel"
+
+    try:
+        response = httpx.post(
+            url,
+            headers=build_observability_headers(),
+            timeout=_TIMEOUT,
+        )
+    except httpx.HTTPError as exc:
+        logger.error("Payments service unreachable for cancellation: order=%s exc=%s", order_id, exc)
+        raise PaymentsServiceError("Payments service unreachable") from exc
+
+    if response.status_code != 200:
+        try:
+            detail = response.json().get("detail", f"Unexpected status {response.status_code}")
+        except Exception:
+            detail = f"Unexpected status {response.status_code}"
+
+        logger.error(
+            "Payments cancellation error: status=%d order=%s detail=%s",
+            response.status_code, order_id, detail,
+        )
+        raise PaymentsServiceError(detail)
+
+    logger.info(
+        "Pending payment cancelled: order=%s",
+        order_id,
+    )
