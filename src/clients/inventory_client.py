@@ -192,3 +192,26 @@ def release_stock(order_id: uuid.UUID) -> dict[str, Any]:
             f"Release failed: status {response.status_code}",
         )
     return response.json() if response.status_code == 200 else {}
+
+def release_stock_for_item(order_id: uuid.UUID, product_id: uuid.UUID) -> None:
+    url = f"{_base_url()}/internal/products/{str(product_id)}/stock/release"
+    try:
+        response = httpx.post(
+            url,
+            json={"order_id": str(order_id)},
+            headers=build_observability_headers(),
+            timeout=_TIMEOUT,
+        )
+    except httpx.HTTPError as exc:
+        logger.error("Inventory service unreachable on release: %s", exc)
+        raise ExternalServiceError("inventory-service", "Service unreachable")
+
+    if response.status_code not in (200, 204):
+        logger.error(
+            "Inventory release error: status=%d body=%s",
+            response.status_code, response.text,
+        )
+        raise ExternalServiceError(
+            "inventory-service",
+            f"Release failed: status {response.status_code}",
+        )

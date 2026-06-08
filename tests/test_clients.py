@@ -6,6 +6,7 @@ The database is NOT involved in these tests.
 """
 
 import uuid
+import json
 
 import httpx
 import pytest
@@ -328,6 +329,43 @@ class TestReleaseStock:
 
         with pytest.raises(ExternalServiceError):
             inventory_client.release_stock(order_id)
+class TestReleaseStockForItem:
+    """Tests for ``inventory_client.release_stock_for_item``."""
+
+    @respx.mock
+    def test_succeeds_on_200(self) -> None:
+        order_id = uuid.uuid4()
+        product_id = uuid.uuid4()
+        release_mock = respx.post(f"http://inventory-service:8000/internal/products/{product_id}/stock/release").mock(
+            return_value=httpx.Response(200, json={"data": {}}),
+        )
+
+        inventory_client.release_stock_for_item(order_id, product_id)
+        assert release_mock.called
+        req_payload = json.loads(release_mock.calls.last.request.content)
+        assert req_payload == {"order_id": str(order_id)}
+
+    @respx.mock
+    def test_succeeds_on_204(self) -> None:
+        order_id = uuid.uuid4()
+        product_id = uuid.uuid4()
+        release_mock = respx.post(f"http://inventory-service:8000/internal/products/{product_id}/stock/release").mock(
+            return_value=httpx.Response(204),
+        )
+
+        inventory_client.release_stock_for_item(order_id, product_id)
+        assert release_mock.called
+
+    @respx.mock
+    def test_raises_external_error_on_500(self) -> None:
+        order_id = uuid.uuid4()
+        product_id = uuid.uuid4()
+        respx.post(f"http://inventory-service:8000/internal/products/{product_id}/stock/release").mock(
+            return_value=httpx.Response(500),
+        )
+
+        with pytest.raises(ExternalServiceError):
+            inventory_client.release_stock_for_item(order_id, product_id)
 
 
 # ── Payments Client ────────────────────────────────────────────────

@@ -60,8 +60,7 @@ def cancel_order(
     )
     _propagate_status_to_items(db, order, OrderStatus.CANCELADA.value, origin="buyer")
 
-    if previous_status in {OrderStatus.CONFIRMADA, OrderStatus.EN_PREPARACION}:
-        _rollback_stock_for_items(order.items)
+    _rollback_stock_for_order(order.id)
 
     if previous_status != OrderStatus.PENDIENTE_DE_PAGO:
         _request_refunds_for_order(db, order)
@@ -119,8 +118,7 @@ def cancel_order_item(
         origin=by,
     )
 
-    if previous_order_status in {OrderStatus.CONFIRMADA, OrderStatus.EN_PREPARACION}:
-        _rollback_stock_for_items([item])
+    _rollback_stock_for_item(item)
 
     all_items_cancelled = all(
         order_item.status == OrderItemLogisticStatus.CANCELADO.value
@@ -189,11 +187,15 @@ def _request_refunds_for_order(db: Session, order: Order) -> None:
 """
 
 
-def _rollback_stock_for_items(items: list[OrderItem]) -> None:
-    if not items:
-        return
+def _rollback_stock_for_item(item: OrderItem) -> None:
     try:
-        order_id = items[0].order_id
+        inventory_client.release_stock_for_item(item.order_id, item.product_id)
+    except Exception as e:
+        logger.error("Stock rollback failed for cancelled order item(s): %s", e)
+
+
+def _rollback_stock_for_order(order_id: uuid.UUID) -> None:
+    try:
         inventory_client.release_stock(order_id)
-    except Exception:
-        logger.error("Stock rollback failed for cancelled order item(s).")
+    except Exception as e:
+        logger.error("Stock rollback failed for cancelled order %s: %s", order_id, e)
