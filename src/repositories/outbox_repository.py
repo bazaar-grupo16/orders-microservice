@@ -30,12 +30,21 @@ class OutboxRepository:
     def claim_batch(session: Session, batch_size: int) -> list[OutboxEvent]:
         """Claim a batch of PENDING events atomically using FOR UPDATE SKIP LOCKED.
         
-        Updates their status to PROCESSING and locked_at to the current time,
-        then commits to make the claims visible and release the short-lived locks.
+        Also recovers events stuck in PROCESSING state for more than 5 minutes 
+        (e.g., if a worker replica crashed or died).
         """
+        from datetime import timedelta
+        stuck_cutoff = utc_now() - timedelta(minutes=5)
+
         events = (
             session.query(OutboxEvent)
-            .filter(OutboxEvent.status == OutboxStatus.PENDING.value)
+            .filter(
+                (OutboxEvent.status == OutboxStatus.PENDING.value) |
+                (
+                    (OutboxEvent.status == OutboxStatus.PROCESSING.value) &
+                    (OutboxEvent.locked_at <= stuck_cutoff)
+                )
+            )
             .order_by(OutboxEvent.created_at.asc())
             .limit(batch_size)
             .with_for_update(skip_locked=True)
