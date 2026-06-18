@@ -30,7 +30,7 @@ def _base_url() -> str:
     return get_settings().PAYMENTS_SERVICE_URL
 
 
-def create_preference(
+async def create_preference(
     *,
     order_id: str,
     items: list[dict[str, Any]],
@@ -71,7 +71,8 @@ def create_preference(
     headers = {"Idempotency-Key": idempotency_key, **build_observability_headers()}
 
     try:
-        response = httpx.post(url, json=payload, headers=headers, timeout=_TIMEOUT)
+        async with httpx.AsyncClient() as client:
+            response = await client.post(url, json=payload, headers=headers, timeout=_TIMEOUT)
     except httpx.HTTPError as exc:
         logger.error("Payments service unreachable: %s", exc)
         raise PaymentsServiceError("Payments service unreachable") from exc
@@ -97,7 +98,7 @@ def create_preference(
     raise PaymentsServiceError(detail)
 
 
-def request_refund(
+async def request_refund(
     *,
     order_id: str,
     order_item_id: str,
@@ -130,12 +131,13 @@ def request_refund(
     payload = {"order_item_id": order_item_id}
 
     try:
-        response = httpx.post(
-            url,
-            json=payload,
-            headers=build_observability_headers(),
-            timeout=_TIMEOUT,
-        )
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                url,
+                json=payload,
+                headers=build_observability_headers(),
+                timeout=_TIMEOUT,
+            )
     except httpx.HTTPError as exc:
         logger.error("Payments service unreachable for refund: order=%s item=%s exc=%s", order_id, order_item_id, exc)
         raise PaymentsServiceError("Payments service unreachable") from exc
@@ -160,16 +162,18 @@ def request_refund(
     )
     raise PaymentsServiceError(detail)
 
-def cancel_pending_payment(order_id: str) -> None:
+
+async def cancel_pending_payment(order_id: str) -> None:
     """Cancel a pending payment via the Payments microservice."""
     url = f"{_base_url()}/payments/{order_id}/cancel"
 
     try:
-        response = httpx.post(
-            url,
-            headers=build_observability_headers(),
-            timeout=_TIMEOUT,
-        )
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                url,
+                headers=build_observability_headers(),
+                timeout=_TIMEOUT,
+            )
     except httpx.HTTPError as exc:
         logger.error("Payments service unreachable for cancellation: order=%s exc=%s", order_id, exc)
         raise PaymentsServiceError("Payments service unreachable") from exc
@@ -189,4 +193,4 @@ def cancel_pending_payment(order_id: str) -> None:
     logger.info(
         "Pending payment cancelled: order=%s",
         order_id,
-    )
+    )

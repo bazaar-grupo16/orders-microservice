@@ -23,7 +23,7 @@ class TestGetCart:
     """Tests for ``cart_client.get_cart``."""
 
     @respx.mock
-    def test_returns_normalised_items_on_success(self) -> None:
+    async def test_returns_normalised_items_on_success(self) -> None:
         user_id = str(uuid.uuid4())
         product_id = str(uuid.uuid4())
         cart_response = {
@@ -47,7 +47,7 @@ class TestGetCart:
             return_value=httpx.Response(200, json=cart_response),
         )
 
-        result = cart_client.get_cart(user_id)
+        result = await cart_client.get_cart(user_id)
 
         assert len(result) == 1
         # Verify normalisation from camelCase to snake_case.
@@ -58,7 +58,7 @@ class TestGetCart:
         assert result[0]["unit_price"] == 1500.00
 
     @respx.mock
-    def test_normalises_category_when_present(self) -> None:
+    async def test_normalises_category_when_present(self) -> None:
         user_id = str(uuid.uuid4())
         product_id = str(uuid.uuid4())
         cart_response = {
@@ -83,22 +83,22 @@ class TestGetCart:
             return_value=httpx.Response(200, json=cart_response),
         )
 
-        result = cart_client.get_cart(user_id)
+        result = await cart_client.get_cart(user_id)
 
         assert result[0]["category"] == "Electrónica"
 
     @respx.mock
-    def test_raises_cart_empty_on_404(self) -> None:
+    async def test_raises_cart_empty_on_404(self) -> None:
         user_id = str(uuid.uuid4())
         respx.get(f"http://cart-service:8000/cart/{user_id}").mock(
             return_value=httpx.Response(404),
         )
 
         with pytest.raises(CartEmptyError):
-            cart_client.get_cart(user_id)
+            await cart_client.get_cart(user_id)
 
     @respx.mock
-    def test_raises_cart_empty_on_empty_items(self) -> None:
+    async def test_raises_cart_empty_on_empty_items(self) -> None:
         user_id = str(uuid.uuid4())
         cart_response = {
             "data": {
@@ -112,61 +112,61 @@ class TestGetCart:
         )
 
         with pytest.raises(CartEmptyError):
-            cart_client.get_cart(user_id)
+            await cart_client.get_cart(user_id)
 
     @respx.mock
-    def test_raises_external_error_on_500(self) -> None:
+    async def test_raises_external_error_on_500(self) -> None:
         user_id = str(uuid.uuid4())
         respx.get(f"http://cart-service:8000/cart/{user_id}").mock(
             return_value=httpx.Response(500, json={"detail": "Internal error"}),
         )
 
         with pytest.raises(ExternalServiceError) as exc_info:
-            cart_client.get_cart(user_id)
+            await cart_client.get_cart(user_id)
         assert exc_info.value.service == "cart-service"
 
     @respx.mock
-    def test_raises_external_error_on_timeout(self) -> None:
+    async def test_raises_external_error_on_timeout(self) -> None:
         user_id = str(uuid.uuid4())
         respx.get(f"http://cart-service:8000/cart/{user_id}").mock(
             side_effect=httpx.ConnectTimeout("Timeout"),
         )
 
         with pytest.raises(ExternalServiceError):
-            cart_client.get_cart(user_id)
+            await cart_client.get_cart(user_id)
 
 
 class TestDeleteCart:
     """Tests for ``cart_client.delete_cart``."""
 
     @respx.mock
-    def test_succeeds_on_204(self) -> None:
+    async def test_succeeds_on_204(self) -> None:
         user_id = str(uuid.uuid4())
         respx.delete(f"http://cart-service:8000/cart/{user_id}").mock(
             return_value=httpx.Response(204),
         )
 
         # Should not raise.
-        cart_client.delete_cart(user_id)
+        await cart_client.delete_cart(user_id)
 
     @respx.mock
-    def test_succeeds_on_200(self) -> None:
+    async def test_succeeds_on_200(self) -> None:
         user_id = str(uuid.uuid4())
         respx.delete(f"http://cart-service:8000/cart/{user_id}").mock(
             return_value=httpx.Response(200),
         )
 
-        cart_client.delete_cart(user_id)
+        await cart_client.delete_cart(user_id)
 
     @respx.mock
-    def test_raises_external_error_on_failure(self) -> None:
+    async def test_raises_external_error_on_failure(self) -> None:
         user_id = str(uuid.uuid4())
         respx.delete(f"http://cart-service:8000/cart/{user_id}").mock(
             return_value=httpx.Response(500),
         )
 
         with pytest.raises(ExternalServiceError):
-            cart_client.delete_cart(user_id)
+            await cart_client.delete_cart(user_id)
 
 
 # ── Inventory Client ──────────────────────────────────────────
@@ -176,7 +176,7 @@ class TestReserveStock:
     """Tests for ``inventory_client.reserve_stock``."""
 
     @respx.mock
-    def test_succeeds_on_200(self) -> None:
+    async def test_succeeds_on_200(self) -> None:
         order_id = uuid.uuid4()
         p1 = str(uuid.uuid4())
         p2 = str(uuid.uuid4())
@@ -189,10 +189,9 @@ class TestReserveStock:
             return_value=httpx.Response(200, json={"data": {p1: 2, p2: 1}}),
         )
 
-        res = inventory_client.reserve_stock(order_id, items)
+        res = await inventory_client.reserve_stock(order_id, items)
         assert reserve_route.called
         req_json = reserve_route.calls.last.request.read()
-        import json
         req_data = json.loads(req_json)
         assert len(req_data) == 2
         assert req_data[0]["order_id"] == str(order_id)
@@ -200,7 +199,7 @@ class TestReserveStock:
         assert res == {"data": {p1: 2, p2: 1}}
 
     @respx.mock
-    def test_raises_insufficient_stock_on_409(self) -> None:
+    async def test_raises_insufficient_stock_on_409(self) -> None:
         order_id = uuid.uuid4()
         p1 = str(uuid.uuid4())
         items = [{"product_id": p1, "quantity": 999}]
@@ -209,11 +208,11 @@ class TestReserveStock:
         )
 
         with pytest.raises(InsufficientStockError) as exc_info:
-            inventory_client.reserve_stock(order_id, items)
+            await inventory_client.reserve_stock(order_id, items)
         assert "Not enough stock" in exc_info.value.detail
 
     @respx.mock
-    def test_raises_external_error_on_500(self) -> None:
+    async def test_raises_external_error_on_500(self) -> None:
         order_id = uuid.uuid4()
         p1 = str(uuid.uuid4())
         items = [{"product_id": p1, "quantity": 1}]
@@ -222,10 +221,10 @@ class TestReserveStock:
         )
 
         with pytest.raises(ExternalServiceError):
-            inventory_client.reserve_stock(order_id, items)
+            await inventory_client.reserve_stock(order_id, items)
 
     @respx.mock
-    def test_raises_external_error_on_timeout(self) -> None:
+    async def test_raises_external_error_on_timeout(self) -> None:
         order_id = uuid.uuid4()
         p1 = str(uuid.uuid4())
         items = [{"product_id": p1, "quantity": 1}]
@@ -234,10 +233,10 @@ class TestReserveStock:
         )
 
         with pytest.raises(ExternalServiceError):
-            inventory_client.reserve_stock(order_id, items)
+            await inventory_client.reserve_stock(order_id, items)
 
     @respx.mock
-    def test_does_not_release_on_batch_insufficient_stock(self) -> None:
+    async def test_does_not_release_on_batch_insufficient_stock(self) -> None:
         order_id = uuid.uuid4()
         p1 = str(uuid.uuid4())
         p2 = str(uuid.uuid4())
@@ -254,7 +253,7 @@ class TestReserveStock:
         )
 
         with pytest.raises(InsufficientStockError):
-            inventory_client.reserve_stock(order_id, items)
+            await inventory_client.reserve_stock(order_id, items)
             
         assert not release_mock.called
 
@@ -263,101 +262,103 @@ class TestCommitStock:
     """Tests for ``inventory_client.commit_stock``."""
 
     @respx.mock
-    def test_succeeds_on_200(self) -> None:
+    async def test_succeeds_on_200(self) -> None:
         order_id = uuid.uuid4()
         commit_mock = respx.post("http://inventory-service:8000/internal/products/stock/commit").mock(
             return_value=httpx.Response(200, json={"data": {"order_id": str(order_id), "committed_products": []}}),
         )
 
-        res = inventory_client.commit_stock(order_id)
+        res = await inventory_client.commit_stock(order_id)
         assert commit_mock.called
         assert res["data"]["order_id"] == str(order_id)
 
     @respx.mock
-    def test_non_fatal_on_404(self) -> None:
+    async def test_non_fatal_on_404(self) -> None:
         order_id = uuid.uuid4()
         commit_mock = respx.post("http://inventory-service:8000/internal/products/stock/commit").mock(
             return_value=httpx.Response(404, json={"detail": "Reservation not found"}),
         )
 
-        res = inventory_client.commit_stock(order_id)
+        res = await inventory_client.commit_stock(order_id)
         assert commit_mock.called
         assert res == {}
 
     @respx.mock
-    def test_raises_external_error_on_500(self) -> None:
+    async def test_raises_external_error_on_500(self) -> None:
         order_id = uuid.uuid4()
         respx.post("http://inventory-service:8000/internal/products/stock/commit").mock(
             return_value=httpx.Response(500),
         )
 
         with pytest.raises(ExternalServiceError):
-            inventory_client.commit_stock(order_id)
+            await inventory_client.commit_stock(order_id)
 
 
 class TestReleaseStock:
     """Tests for ``inventory_client.release_stock``."""
 
     @respx.mock
-    def test_succeeds_on_200(self) -> None:
+    async def test_succeeds_on_200(self) -> None:
         order_id = uuid.uuid4()
         release_mock = respx.post("http://inventory-service:8000/internal/products/stock/release").mock(
             return_value=httpx.Response(200, json={"data": {}}),
         )
 
-        res = inventory_client.release_stock(order_id)
+        res = await inventory_client.release_stock(order_id)
         assert release_mock.called
         assert res == {"data": {}}
 
     @respx.mock
-    def test_succeeds_on_204(self) -> None:
+    async def test_succeeds_on_204(self) -> None:
         order_id = uuid.uuid4()
         release_mock = respx.post("http://inventory-service:8000/internal/products/stock/release").mock(
             return_value=httpx.Response(204),
         )
 
-        res = inventory_client.release_stock(order_id)
+        res = await inventory_client.release_stock(order_id)
         assert release_mock.called
         assert res == {}
 
     @respx.mock
-    def test_raises_external_error_on_500(self) -> None:
+    async def test_raises_external_error_on_500(self) -> None:
         order_id = uuid.uuid4()
         respx.post("http://inventory-service:8000/internal/products/stock/release").mock(
             return_value=httpx.Response(500),
         )
 
         with pytest.raises(ExternalServiceError):
-            inventory_client.release_stock(order_id)
+            await inventory_client.release_stock(order_id)
+
+
 class TestReleaseStockForItem:
     """Tests for ``inventory_client.release_stock_for_item``."""
 
     @respx.mock
-    def test_succeeds_on_200(self) -> None:
+    async def test_succeeds_on_200(self) -> None:
         order_id = uuid.uuid4()
         product_id = uuid.uuid4()
         release_mock = respx.post(f"http://inventory-service:8000/internal/products/{product_id}/stock/release").mock(
             return_value=httpx.Response(200, json={"data": {}}),
         )
 
-        inventory_client.release_stock_for_item(order_id, product_id)
+        await inventory_client.release_stock_for_item(order_id, product_id)
         assert release_mock.called
         req_payload = json.loads(release_mock.calls.last.request.content)
         assert req_payload == {"order_id": str(order_id)}
 
     @respx.mock
-    def test_succeeds_on_204(self) -> None:
+    async def test_succeeds_on_204(self) -> None:
         order_id = uuid.uuid4()
         product_id = uuid.uuid4()
         release_mock = respx.post(f"http://inventory-service:8000/internal/products/{product_id}/stock/release").mock(
             return_value=httpx.Response(204),
         )
 
-        inventory_client.release_stock_for_item(order_id, product_id)
+        await inventory_client.release_stock_for_item(order_id, product_id)
         assert release_mock.called
 
     @respx.mock
-    def test_raises_external_error_on_500(self) -> None:
+    async def test_raises_external_error_on_500(self) -> None:
         order_id = uuid.uuid4()
         product_id = uuid.uuid4()
         respx.post(f"http://inventory-service:8000/internal/products/{product_id}/stock/release").mock(
@@ -365,7 +366,7 @@ class TestReleaseStockForItem:
         )
 
         with pytest.raises(ExternalServiceError):
-            inventory_client.release_stock_for_item(order_id, product_id)
+            await inventory_client.release_stock_for_item(order_id, product_id)
 
 
 # ── Payments Client ────────────────────────────────────────────────
@@ -384,7 +385,7 @@ class TestPaymentsClient:
     }
 
     @respx.mock
-    def test_returns_preference_on_201(self) -> None:
+    async def test_returns_preference_on_201(self) -> None:
         """Happy path: Payments returns 201 with preference_id and init_point."""
         order_id = str(uuid.uuid4())
         idem_key = str(uuid.uuid4())
@@ -393,7 +394,7 @@ class TestPaymentsClient:
             return_value=httpx.Response(201, json=self._PREFERENCE_RESPONSE),
         )
 
-        result = payments_client.create_preference(
+        result = await payments_client.create_preference(
             order_id=order_id,
             items=self._ITEMS,
             idempotency_key=idem_key,
@@ -404,7 +405,7 @@ class TestPaymentsClient:
         assert result["init_point"].startswith("https://")
 
     @respx.mock
-    def test_sends_correct_idempotency_header(self) -> None:
+    async def test_sends_correct_idempotency_header(self) -> None:
         """The Idempotency-Key header must be forwarded verbatim."""
         order_id = str(uuid.uuid4())
         idem_key = str(uuid.uuid4())
@@ -413,7 +414,7 @@ class TestPaymentsClient:
             return_value=httpx.Response(201, json=self._PREFERENCE_RESPONSE),
         )
 
-        payments_client.create_preference(
+        await payments_client.create_preference(
             order_id=order_id,
             items=self._ITEMS,
             idempotency_key=idem_key,
@@ -422,7 +423,7 @@ class TestPaymentsClient:
         assert route.calls.last.request.headers["Idempotency-Key"] == idem_key
 
     @respx.mock
-    def test_raises_payments_error_on_400(self) -> None:
+    async def test_raises_payments_error_on_400(self) -> None:
         """A 400 from Payments must raise PaymentsServiceError."""
         order_id = str(uuid.uuid4())
         respx.post("http://payments-service:8000/payments/preferences").mock(
@@ -430,7 +431,7 @@ class TestPaymentsClient:
         )
 
         with pytest.raises(PaymentsServiceError) as exc_info:
-            payments_client.create_preference(
+            await payments_client.create_preference(
                 order_id=order_id,
                 items=self._ITEMS,
                 idempotency_key=str(uuid.uuid4()),
@@ -438,7 +439,7 @@ class TestPaymentsClient:
         assert "Bad request" in exc_info.value.detail
 
     @respx.mock
-    def test_raises_payments_error_on_422(self) -> None:
+    async def test_raises_payments_error_on_422(self) -> None:
         """A 422 (validation error from Payments) must raise PaymentsServiceError."""
         order_id = str(uuid.uuid4())
         respx.post("http://payments-service:8000/payments/preferences").mock(
@@ -446,14 +447,14 @@ class TestPaymentsClient:
         )
 
         with pytest.raises(PaymentsServiceError):
-            payments_client.create_preference(
+            await payments_client.create_preference(
                 order_id=order_id,
                 items=self._ITEMS,
                 idempotency_key=str(uuid.uuid4()),
             )
 
     @respx.mock
-    def test_raises_payments_error_on_502(self) -> None:
+    async def test_raises_payments_error_on_502(self) -> None:
         """A 502 (MP gateway error) must raise PaymentsServiceError."""
         order_id = str(uuid.uuid4())
         respx.post("http://payments-service:8000/payments/preferences").mock(
@@ -461,7 +462,7 @@ class TestPaymentsClient:
         )
 
         with pytest.raises(PaymentsServiceError) as exc_info:
-            payments_client.create_preference(
+            await payments_client.create_preference(
                 order_id=order_id,
                 items=self._ITEMS,
                 idempotency_key=str(uuid.uuid4()),
@@ -469,7 +470,7 @@ class TestPaymentsClient:
         assert "Bad gateway" in exc_info.value.detail
 
     @respx.mock
-    def test_raises_payments_error_on_timeout(self) -> None:
+    async def test_raises_payments_error_on_timeout(self) -> None:
         """A network timeout must raise PaymentsServiceError (not propagate httpx exception)."""
         order_id = str(uuid.uuid4())
         respx.post("http://payments-service:8000/payments/preferences").mock(
@@ -477,7 +478,7 @@ class TestPaymentsClient:
         )
 
         with pytest.raises(PaymentsServiceError) as exc_info:
-            payments_client.create_preference(
+            await payments_client.create_preference(
                 order_id=order_id,
                 items=self._ITEMS,
                 idempotency_key=str(uuid.uuid4()),

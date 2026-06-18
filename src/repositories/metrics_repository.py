@@ -2,7 +2,7 @@ from datetime import datetime
 from typing import Any
 
 from sqlalchemy import case, func, select
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.models.order import Order
 from src.models.order_item import OrderItem
@@ -12,10 +12,10 @@ from src.models.order_status import REVENUE_ELIGIBLE_STATUSES
 class MetricsRepository:
     """Repository for executing database-level aggregations for metrics."""
 
-    def __init__(self, session: Session):
+    def __init__(self, session: AsyncSession):
         self.session = session
 
-    def get_orders_summary_totals(
+    async def get_orders_summary_totals(
         self, start_date: datetime, end_date: datetime
     ) -> tuple[int, float]:
         """Return total order count and revenue from confirmed orders in a period."""
@@ -32,13 +32,13 @@ class MetricsRepository:
             func.count(Order.id).label("total_orders"),
             func.coalesce(func.sum(revenue_amount), 0).label("total_amount"),
         ).where(*date_filter)
-        result = self.session.execute(query)
+        result = await self.session.execute(query)
         row = result.first()
         if not row:
             return 0, 0.0
         return row.total_orders, float(row.total_amount)
 
-    def get_orders_distribution_by_status(
+    async def get_orders_distribution_by_status(
         self, start_date: datetime, end_date: datetime
     ) -> dict[str, int]:
         """Calcula la cantidad de órdenes agrupadas por estado."""
@@ -50,10 +50,10 @@ class MetricsRepository:
             Order.created_at <= end_date
         ).group_by(Order.status)
 
-        result = self.session.execute(query)
+        result = await self.session.execute(query)
         return {row.status: row.status_count for row in result.all()}
 
-    def get_orders_timeseries(
+    async def get_orders_timeseries(
         self, start_date: datetime, end_date: datetime, interval: str
     ) -> list[dict[str, Any]]:
         """Calcula la serie de tiempo agrupando por intervalo (day, week, month)."""
@@ -72,7 +72,7 @@ class MetricsRepository:
             Order.created_at <= end_date
         ).group_by(time_bucket).order_by(time_bucket.asc())
 
-        result = self.session.execute(query)
+        result = await self.session.execute(query)
 
         timeseries = []
         for row in result.all():
@@ -84,7 +84,7 @@ class MetricsRepository:
             })
         return timeseries
 
-    def get_top_selling_products(
+    async def get_top_selling_products(
         self, start_date: datetime, end_date: datetime, limit: int
     ) -> list[dict[str, Any]]:
         """Devuelve los productos más vendidos en un rango de fechas."""
@@ -106,7 +106,7 @@ class MetricsRepository:
             func.sum(OrderItem.quantity).desc()
         ).limit(limit)
 
-        result = self.session.execute(query)
+        result = await self.session.execute(query)
         return [
             {
                 "product_id": row.product_id,
@@ -117,7 +117,7 @@ class MetricsRepository:
             for row in result.all()
         ]
 
-    def get_category_sales(
+    async def get_category_sales(
         self, start_date: datetime, end_date: datetime
     ) -> list[dict[str, Any]]:
         """Devuelve las métricas de ventas agrupadas por categoría."""
@@ -137,7 +137,7 @@ class MetricsRepository:
             func.sum(OrderItem.quantity * OrderItem.unit_price).desc()
         )
 
-        result = self.session.execute(query)
+        result = await self.session.execute(query)
         return [
             {
                 "category": row.category,
@@ -146,3 +146,4 @@ class MetricsRepository:
             }
             for row in result.all()
         ]
+

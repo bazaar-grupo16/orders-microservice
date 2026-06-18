@@ -4,7 +4,7 @@ import logging
 from typing import Any
 import uuid
 
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import IntegrityError
 
 from src.clients import cart_client, inventory_client, payments_client
@@ -17,8 +17,8 @@ from src.repositories import order_repository, idempotency_repository
 logger = logging.getLogger(__name__)
 
 
-def create_order(
-    db: Session,
+async def create_order(
+    db: AsyncSession,
     *,
     user_id: uuid.UUID,
     idempotency_key: str,
@@ -28,9 +28,9 @@ def create_order(
     order_id = uuid.uuid4()
 
     try:
-        order_id = _resolve_idempotency(db, idempotency_key, order_id)
+        order_id = await _resolve_idempotency(db, idempotency_key, order_id)
     except DuplicateRequest as e:
-        existing = order_repository.get_by_idempotency_key(db, idempotency_key)
+        existing = await order_repository.get_by_idempotency_key(db, idempotency_key)
         if existing is None:
             raise e
         logger.info(
@@ -39,13 +39,13 @@ def create_order(
         )
         return existing
 
-    cart_items = cart_client.get_cart(user_id)
+    cart_items = await cart_client.get_cart(user_id)
     
-    _reserve_stock(order_id, cart_items)
+    await _reserve_stock(order_id, cart_items)
 
-    order = _create_order_in_db(db, order_id, user_id, idempotency_key, shipping_address, cart_items)
+    order = await _create_order_in_db(db, order_id, user_id, idempotency_key, shipping_address, cart_items)
 
-    order = _create_order_payment_preference(db, order, idempotency_key)
+    order = await _create_order_payment_preference(db, order, idempotency_key)
 
     logger.info(
         "Order created: id=%s status=%s preference_id=%s",
@@ -53,8 +53,8 @@ def create_order(
     )
     return order
 
-def _resolve_idempotency(db: Session, idempotency_key: str, order_id: uuid.UUID) -> uuid.UUID:
-    existing = idempotency_repository.get(db, idempotency_key)
+async def _resolve_idempotency(db: AsyncSession, idempotency_key: str, order_id: uuid.UUID) -> uuid.UUID:
+    existing = await idempotency_repository.get(db, idempotency_key)
 
     if existing is not None:
         logger.info(
@@ -65,11 +65,11 @@ def _resolve_idempotency(db: Session, idempotency_key: str, order_id: uuid.UUID)
         raise DuplicateRequest(idempotency_key, existing.order_id)
 
     try:
-        idempotency_repository.create(db, idempotency_key, order_id)
+        await idempotency_repository.create(db, idempotency_key, order_id)
     except IntegrityError:
         logger.warning("Race condition detected for idempotency key=%s", idempotency_key)
-        idempotency_repository.rollback(db)
-        existing = idempotency_repository.get(db, idempotency_key)
+        await idempotency_repository.rollback(db)
+        existing = await idempotency_repository.get(db, idempotency_key)
         if existing is not None:
             raise DuplicateRequest(idempotency_key, existing.order_id)
         raise
@@ -78,12 +78,12 @@ def _resolve_idempotency(db: Session, idempotency_key: str, order_id: uuid.UUID)
 
 
 
-def _reserve_stock(order_id: uuid.UUID, cart_items: list[dict[str, Any]]) -> None:
+async def _reserve_stock(order_id: uuid.UUID, cart_items: list[dict[str, Any]]) -> None:
     try:
-        inventory_client.reserve_stock(order_id, cart_items)
+        await inventory_client.reserve_stock(order_id, cart_items)
     except InsufficientStockError:
         product_ids = [str(item["product_id"]) for item in cart_items]
-        stock_levels = _get_stock_levels(product_ids)
+        stock_levels = await _get_stock_levels(product_ids)
         insufficient_items = _build_insufficient_stock_items(cart_items, stock_levels)
         if insufficient_items:
             raise InsufficientStockError(
@@ -92,8 +92,8 @@ def _reserve_stock(order_id: uuid.UUID, cart_items: list[dict[str, Any]]) -> Non
             )
         raise
 
-def _create_order_in_db(
-        db: Session,
+async def _create_order_in_db(
+        db: AsyncSession,
         order_id: uuid.UUID,
         user_id: uuid.UUID,
         idempotency_key: str,
@@ -115,7 +115,7 @@ def _create_order_in_db(
     ]
 
     try:
-        return order_repository.create_order(
+        return await order_repository.create_order(
             db,
             user_id=user_id,
             idempotency_key=idempotency_key,
@@ -128,7 +128,7 @@ def _create_order_in_db(
     except Exception:
         logger.error("Order persistence failed — rolling back stock reservation")
         try:
-            inventory_client.release_stock(order_id)
+            await inventory_client.release_stock(order_id)
         except Exception:
             logger.critical(
                 "CRITICAL: Stock rollback failed for key=%s. Manual intervention required.",
@@ -136,8 +136,8 @@ def _create_order_in_db(
             )
         raise
 
-def _create_order_payment_preference(
-        db: Session,
+async def _create_order_payment_preference(
+        db: AsyncSession,
         order: Order,
         idempotency_key: str,
 ) -> Order:
@@ -152,7 +152,7 @@ def _create_order_payment_preference(
     ]
 
     try:
-        preference = payments_client.create_preference(
+        preference = await payments_client.create_preference(
             order_id=str(order.id),
             items=preference_items,
             idempotency_key=idempotency_key,
@@ -163,14 +163,14 @@ def _create_order_payment_preference(
             order.id,
         )
         try:
-            inventory_client.release_stock(order.id)
+            await inventory_client.release_stock(order.id)
         except Exception:
             logger.critical(
                 "CRITICAL: Stock rollback failed after Payments error for key=%s. Manual intervention required.",
                 idempotency_key,
             )
         try:
-            order_repository.delete_order(db, order)
+            await order_repository.delete_order(db, order)
         except Exception:
             logger.critical(
                 "CRITICAL: Order deletion failed after Payments error for key=%s order=%s. Manual intervention required.",
@@ -178,16 +178,16 @@ def _create_order_payment_preference(
             )
         raise
 
-    return order_repository.update_payment_preference(
+    return await order_repository.update_payment_preference(
         db,
         order,
         preference_id=preference["preference_id"],
         init_point=preference["init_point"],
     )
 
-def _get_stock_levels(product_ids: list[str]) -> dict[str, int] | None:
+async def _get_stock_levels(product_ids: list[str]) -> dict[str, int] | None:
     try:
-        return inventory_client.get_stock_levels(product_ids)
+        return await inventory_client.get_stock_levels(product_ids)
     except Exception:
         return None
 
@@ -214,3 +214,4 @@ def _build_insufficient_stock_items(
                 }
             )
     return insufficient_items
+

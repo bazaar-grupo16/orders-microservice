@@ -3,7 +3,7 @@
 import logging
 import uuid
 
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.exceptions import OrderNotFoundError
 from src.models.order import Order
@@ -20,15 +20,15 @@ from src.services.outbox_worker import process_order_outbox_synchronously
 logger = logging.getLogger(__name__)
 
 
-def resolve_payment(
-	db: Session,
+async def resolve_payment(
+	db: AsyncSession,
 	*,
 	order_id: uuid.UUID,
 	payment_status: PaymentStatus,
 	transaction_id: str,
 ) -> Order:
 	"""Process the payment webhook — step 6 of the Saga."""
-	order = order_repository.get_by_id(db, order_id)
+	order = await order_repository.get_by_id(db, order_id)
 	if order is None:
 		raise OrderNotFoundError(str(order_id))
 
@@ -43,40 +43,40 @@ def resolve_payment(
 	validate_transition(OrderStatus(order.status), target_status)
 
 	if payment_status == PaymentStatus.APPROVED:
-		OutboxRepository.insert(db, "PAYMENT_SUCCESS", {
+		await OutboxRepository.insert(db, "PAYMENT_SUCCESS", {
 			"order_id": str(order.id),
 			"user_id": str(order.user_id),
 			"status": target_status.value,
 		})
 	else:
-		OutboxRepository.insert(db, "PAYMENT_FAILED", {
+		await OutboxRepository.insert(db, "PAYMENT_FAILED", {
 			"order_id": str(order.id),
 			"status": target_status.value,
 		})
 
-	db.commit()
+	await db.commit()
 
 	try:
-		process_order_outbox_synchronously(db, order.id)
+		await process_order_outbox_synchronously(db, order.id)
 	except Exception as exc:
 		logger.warning("Inline outbox processing failed for order %s: %s", order.id, exc)
 
-	return order_repository.get_by_id(db, order_id)
+	return await order_repository.get_by_id(db, order_id)
 
 
-def resolve_refund(
-	db: Session,
+async def resolve_refund(
+	db: AsyncSession,
 	*,
 	order_id: uuid.UUID,
 	order_item_id: uuid.UUID,
 	refund_status: RefundStatus,
 ) -> None:
 	"""Process a refund webhook for an order item."""
-	order = order_repository.get_by_id(db, order_id)
+	order = await order_repository.get_by_id(db, order_id)
 	if order is None:
 		raise OrderNotFoundError(str(order_id))
 
-	item = order_repository.get_item_by_id(db, order_item_id)
+	item = await order_repository.get_item_by_id(db, order_item_id)
 	if item is None or item.order_id != order_id:
 		raise OrderNotFoundError(f"OrderItem {order_item_id} not found for order {order_id}")
 
@@ -91,7 +91,7 @@ def resolve_refund(
 	previous_status = OrderItemLogisticStatus(item.status)
 	validate_item_transition(previous_status, new_status)
 
-	order_repository.update_item_status(
+	await order_repository.update_item_status(
 		db,
 		item,
 		new_status.value,
@@ -104,9 +104,9 @@ def resolve_refund(
 	):
 		previous_order_status = OrderStatus(order.status)
 		validate_transition(previous_order_status, OrderStatus.REEMBOLSO_PROCESADO)
-		order_repository.update_status(
+		await order_repository.update_status(
 			db,
 			order,
 			OrderStatus.REEMBOLSO_PROCESADO,
 			origin="webhook",
-		)
+		)

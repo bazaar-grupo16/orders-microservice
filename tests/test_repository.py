@@ -10,7 +10,7 @@ import uuid
 
 import pytest
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.models.order_status import OrderStatus
 from src.repositories import order_repository
@@ -45,7 +45,7 @@ def _sample_items() -> list[dict]:
     ]
 
 
-def _create_test_order(db: Session, **overrides) -> "Order":  # noqa: F821
+async def _create_test_order(db: AsyncSession, **overrides) -> "Order":  # noqa: F821
     """Helper to create an order with sensible defaults."""
     defaults = {
         "user_id": uuid.uuid4(),
@@ -56,7 +56,7 @@ def _create_test_order(db: Session, **overrides) -> "Order":  # noqa: F821
         "items": _sample_items(),
     }
     defaults.update(overrides)
-    return order_repository.create_order(db, **defaults)
+    return await order_repository.create_order(db, **defaults)
 
 
 # ── Tests ─────────────────────────────────────────────────────
@@ -65,8 +65,8 @@ def _create_test_order(db: Session, **overrides) -> "Order":  # noqa: F821
 class TestCreateOrder:
     """Tests for ``order_repository.create_order``."""
 
-    def test_creates_order_with_items(self, db_session: Session) -> None:
-        order = _create_test_order(db_session)
+    async def test_creates_order_with_items(self, db_session: AsyncSession) -> None:
+        order = await _create_test_order(db_session)
 
         assert order.id is not None
         assert order.status == OrderStatus.PENDIENTE_DE_PAGO
@@ -75,18 +75,18 @@ class TestCreateOrder:
         assert order.items[1].quantity == 2
         assert order.total_amount == 1551.00
 
-    def test_persists_shipping_address_as_json(self, db_session: Session) -> None:
-        order = _create_test_order(db_session)
+    async def test_persists_shipping_address_as_json(self, db_session: AsyncSession) -> None:
+        order = await _create_test_order(db_session)
 
         assert order.shipping_address["city"] == "Buenos Aires"
         assert order.shipping_address["country"] == "Argentina"
 
-    def test_generates_uuid_primary_key(self, db_session: Session) -> None:
-        order = _create_test_order(db_session)
+    async def test_generates_uuid_primary_key(self, db_session: AsyncSession) -> None:
+        order = await _create_test_order(db_session)
         assert isinstance(order.id, uuid.UUID)
 
-    def test_sets_timestamps(self, db_session: Session) -> None:
-        order = _create_test_order(db_session)
+    async def test_sets_timestamps(self, db_session: AsyncSession) -> None:
+        order = await _create_test_order(db_session)
         assert order.created_at is not None
         assert order.updated_at is not None
 
@@ -94,21 +94,21 @@ class TestCreateOrder:
 class TestGetById:
     """Tests for ``order_repository.get_by_id``."""
 
-    def test_returns_order_when_found(self, db_session: Session) -> None:
-        created = _create_test_order(db_session)
-        found = order_repository.get_by_id(db_session, created.id)
+    async def test_returns_order_when_found(self, db_session: AsyncSession) -> None:
+        created = await _create_test_order(db_session)
+        found = await order_repository.get_by_id(db_session, created.id)
 
         assert found is not None
         assert found.id == created.id
         assert found.status == created.status
 
-    def test_returns_none_when_not_found(self, db_session: Session) -> None:
-        result = order_repository.get_by_id(db_session, uuid.uuid4())
+    async def test_returns_none_when_not_found(self, db_session: AsyncSession) -> None:
+        result = await order_repository.get_by_id(db_session, uuid.uuid4())
         assert result is None
 
-    def test_eagerly_loads_items(self, db_session: Session) -> None:
-        created = _create_test_order(db_session)
-        found = order_repository.get_by_id(db_session, created.id)
+    async def test_eagerly_loads_items(self, db_session: AsyncSession) -> None:
+        created = await _create_test_order(db_session)
+        found = await order_repository.get_by_id(db_session, created.id)
 
         assert found is not None
         assert len(found.items) == 2
@@ -117,76 +117,76 @@ class TestGetById:
 class TestGetByIdempotencyKey:
     """Tests for ``order_repository.get_by_idempotency_key``."""
 
-    def test_returns_order_when_key_exists(self, db_session: Session) -> None:
+    async def test_returns_order_when_key_exists(self, db_session: AsyncSession) -> None:
         key = str(uuid.uuid4())
-        created = _create_test_order(db_session, idempotency_key=key)
-        found = order_repository.get_by_idempotency_key(db_session, key)
+        created = await _create_test_order(db_session, idempotency_key=key)
+        found = await order_repository.get_by_idempotency_key(db_session, key)
 
         assert found is not None
         assert found.id == created.id
 
-    def test_returns_none_when_key_not_found(self, db_session: Session) -> None:
-        result = order_repository.get_by_idempotency_key(
+    async def test_returns_none_when_key_not_found(self, db_session: AsyncSession) -> None:
+        result = await order_repository.get_by_idempotency_key(
             db_session, str(uuid.uuid4()),
         )
         assert result is None
 
-    def test_duplicate_key_raises_integrity_error(self, db_session: Session) -> None:
+    async def test_duplicate_key_raises_integrity_error(self, db_session: AsyncSession) -> None:
         key = str(uuid.uuid4())
-        _create_test_order(db_session, idempotency_key=key)
+        await _create_test_order(db_session, idempotency_key=key)
 
         with pytest.raises(IntegrityError):
-            _create_test_order(db_session, idempotency_key=key)
+            await _create_test_order(db_session, idempotency_key=key)
 
         # Must rollback after IntegrityError to keep session usable.
-        db_session.rollback()
+        await db_session.rollback()
 
 
 class TestListByUser:
     """Tests for ``order_repository.list_by_user``."""
 
-    def test_returns_orders_for_user(self, db_session: Session) -> None:
+    async def test_returns_orders_for_user(self, db_session: AsyncSession) -> None:
         user_id = uuid.uuid4()
-        _create_test_order(db_session, user_id=user_id)
-        _create_test_order(db_session, user_id=user_id)
+        await _create_test_order(db_session, user_id=user_id)
+        await _create_test_order(db_session, user_id=user_id)
         # Another user's order — should not appear.
-        _create_test_order(db_session, user_id=uuid.uuid4())
+        await _create_test_order(db_session, user_id=uuid.uuid4())
 
-        orders, total = order_repository.list_by_user(db_session, user_id)
+        orders, total = await order_repository.list_by_user(db_session, user_id)
 
         assert total == 2
         assert len(orders) == 2
         assert all(o.user_id == user_id for o in orders)
 
-    def test_filters_by_status(self, db_session: Session) -> None:
+    async def test_filters_by_status(self, db_session: AsyncSession) -> None:
         user_id = uuid.uuid4()
-        _create_test_order(db_session, user_id=user_id)
-        confirmed = _create_test_order(db_session, user_id=user_id)
-        order_repository.update_status(
+        await _create_test_order(db_session, user_id=user_id)
+        confirmed = await _create_test_order(db_session, user_id=user_id)
+        await order_repository.update_status(
             db_session, confirmed, OrderStatus.CONFIRMADA,
         )
 
-        orders, total = order_repository.list_by_user(
+        orders, total = await order_repository.list_by_user(
             db_session, user_id, status_filter=OrderStatus.CONFIRMADA,
         )
 
         assert total == 1
         assert orders[0].status == OrderStatus.CONFIRMADA
 
-    def test_pagination_offset_and_limit(self, db_session: Session) -> None:
+    async def test_pagination_offset_and_limit(self, db_session: AsyncSession) -> None:
         user_id = uuid.uuid4()
         for _ in range(5):
-            _create_test_order(db_session, user_id=user_id)
+            await _create_test_order(db_session, user_id=user_id)
 
-        orders, total = order_repository.list_by_user(
+        orders, total = await order_repository.list_by_user(
             db_session, user_id, offset=2, limit=2,
         )
 
         assert total == 5
         assert len(orders) == 2
 
-    def test_returns_empty_for_unknown_user(self, db_session: Session) -> None:
-        orders, total = order_repository.list_by_user(
+    async def test_returns_empty_for_unknown_user(self, db_session: AsyncSession) -> None:
+        orders, total = await order_repository.list_by_user(
             db_session, uuid.uuid4(),
         )
         assert total == 0
@@ -196,20 +196,20 @@ class TestListByUser:
 class TestUpdateStatus:
     """Tests for ``order_repository.update_status``."""
 
-    def test_updates_status(self, db_session: Session) -> None:
-        order = _create_test_order(db_session)
+    async def test_updates_status(self, db_session: AsyncSession) -> None:
+        order = await _create_test_order(db_session)
 
-        updated = order_repository.update_status(
+        updated = await order_repository.update_status(
             db_session, order, OrderStatus.CONFIRMADA,
         )
 
         assert updated.status == OrderStatus.CONFIRMADA
 
-    def test_updates_updated_at_timestamp(self, db_session: Session) -> None:
-        order = _create_test_order(db_session)
+    async def test_updates_updated_at_timestamp(self, db_session: AsyncSession) -> None:
+        order = await _create_test_order(db_session)
         original_updated_at = order.updated_at
 
-        updated = order_repository.update_status(
+        updated = await order_repository.update_status(
             db_session, order, OrderStatus.CONFIRMADA,
         )
 
@@ -219,16 +219,16 @@ class TestUpdateStatus:
 class TestUpdateTrackingCode:
     """Tests for ``order_repository.update_tracking_code`` (deprecated - tracking moved to OrderItem)."""
 
-    def test_sets_tracking_code_on_order(self, db_session: Session) -> None:
+    async def test_sets_tracking_code_on_order(self, db_session: AsyncSession) -> None:
         """Tracking code is now per-item, but order still has old field for migrations."""
         from src.models.order_status import OrderItemLogisticStatus
-        order = _create_test_order(db_session)
+        order = await _create_test_order(db_session)
         
         # Verify order item has tracking_code (per-item now)
         item = order.items[0]
         assert item.tracking_code is None
         
-        updated_item = order_repository.update_item_status(
+        updated_item = await order_repository.update_item_status(
             db_session, item, OrderItemLogisticStatus.ENVIADO, tracking_code="TRACK-12345-AR"
         )
         

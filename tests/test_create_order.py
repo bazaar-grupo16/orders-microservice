@@ -6,10 +6,10 @@ hitting the real PostgreSQL database.
 """
 
 import uuid
+import json
 
 import httpx
 import respx
-from fastapi.testclient import TestClient
 
 
 # ── Helpers ───────────────────────────────────────────────────
@@ -31,7 +31,6 @@ _PREFERENCE_RESPONSE = {
 
 
 def _mock_reserve_side_effect(request):
-    import json
     data = json.loads(request.read())
     for item in data:
         assert "order_id" in item
@@ -40,7 +39,6 @@ def _mock_reserve_side_effect(request):
 
 
 def _mock_release_side_effect(request):
-    import json
     data = json.loads(request.read())
     assert isinstance(data, dict)
     assert "order_id" in data
@@ -91,8 +89,8 @@ def _stock_lookup_response(cart_payload: dict, available: dict[str, int] | None 
     }
 
 
-def _post_order(
-    client: TestClient,
+async def _post_order(
+    client: httpx.AsyncClient,
     *,
     user_id: str = _USER_ID,
     idempotency_key: str | None = None,
@@ -103,7 +101,7 @@ def _post_order(
         idempotency_key = str(uuid.uuid4())
     if body is None:
         body = {"shipping_address": _VALID_ADDRESS}
-    return client.post(
+    return await client.post(
         "/orders",
         json=body,
         headers={
@@ -137,11 +135,11 @@ class TestCreateOrderHappyPath:
     """Nominal Saga flow — cart → reserve → persist → payments → 201."""
 
     @respx.mock
-    def test_creates_order_and_returns_201(self, client: TestClient) -> None:
+    async def test_creates_order_and_returns_201(self, client: httpx.AsyncClient) -> None:
         user_id = str(uuid.uuid4())
         _mock_happy_path(user_id)
 
-        response = _post_order(client, user_id=user_id)
+        response = await _post_order(client, user_id=user_id)
 
         assert response.status_code == 201
         data = response.json()
@@ -149,12 +147,12 @@ class TestCreateOrderHappyPath:
         assert data["status"] == "PENDIENTE_DE_PAGO"
 
     @respx.mock
-    def test_response_includes_init_point_and_preference_id(self, client: TestClient) -> None:
+    async def test_response_includes_init_point_and_preference_id(self, client: httpx.AsyncClient) -> None:
         """The response must contain the MercadoPago checkout URL."""
         user_id = str(uuid.uuid4())
         _mock_happy_path(user_id)
 
-        response = _post_order(client, user_id=user_id)
+        response = await _post_order(client, user_id=user_id)
 
         assert response.status_code == 201
         data = response.json()
@@ -162,19 +160,19 @@ class TestCreateOrderHappyPath:
         assert data["preference_id"] == _PREFERENCE_RESPONSE["preference_id"]
 
     @respx.mock
-    def test_order_has_correct_total(self, client: TestClient) -> None:
+    async def test_order_has_correct_total(self, client: httpx.AsyncClient) -> None:
         """Total should be sum(unit_price * quantity) from cart items."""
         user_id = str(uuid.uuid4())
         _mock_happy_path(user_id)
 
-        response = _post_order(client, user_id=user_id)
+        response = await _post_order(client, user_id=user_id)
         order_id = response.json()["order_id"]
 
         assert response.status_code == 201
         assert order_id is not None
 
     @respx.mock
-    def test_payments_preference_is_called_with_order_id(self, client: TestClient) -> None:
+    async def test_payments_preference_is_called_with_order_id(self, client: httpx.AsyncClient) -> None:
         """The Payments service must receive the order_id in the request body."""
         user_id = str(uuid.uuid4())
         cart_payload = _cart_response(user_id)
@@ -191,17 +189,16 @@ class TestCreateOrderHappyPath:
             return_value=httpx.Response(201, json=_PREFERENCE_RESPONSE),
         )
 
-        response = _post_order(client, user_id=user_id)
+        response = await _post_order(client, user_id=user_id)
         assert response.status_code == 201
 
-        import json
         request_body = json.loads(payments_route.calls.last.request.content)
         assert request_body["order_id"] == response.json()["order_id"]
 
     @respx.mock
-    def test_inventory_reserve_includes_notification_metadata(
+    async def test_inventory_reserve_includes_notification_metadata(
         self,
-        client: TestClient,
+        client: httpx.AsyncClient,
     ) -> None:
         """Orders sends seller/product metadata so Inventory can notify low stock."""
         user_id = str(uuid.uuid4())
@@ -240,11 +237,10 @@ class TestCreateOrderHappyPath:
             return_value=httpx.Response(201, json=_PREFERENCE_RESPONSE),
         )
 
-        response = _post_order(client, user_id=user_id)
+        response = await _post_order(client, user_id=user_id)
 
         assert response.status_code == 201
         order_id = response.json()["order_id"]
-        import json
         request_body = json.loads(inventory_route.calls.last.request.content)
         assert request_body == [
             {
@@ -261,15 +257,15 @@ class TestIdempotency:
     """Duplicate checkout attempts must return the same order and init_point."""
 
     @respx.mock
-    def test_duplicate_key_returns_same_order_and_init_point(self, client: TestClient) -> None:
+    async def test_duplicate_key_returns_same_order_and_init_point(self, client: httpx.AsyncClient) -> None:
         user_id = str(uuid.uuid4())
         key = str(uuid.uuid4())
 
         # Only the first call should hit Cart + Inventory + Payments.
         _mock_happy_path(user_id)
 
-        first = _post_order(client, user_id=user_id, idempotency_key=key)
-        second = _post_order(client, user_id=user_id, idempotency_key=key)
+        first = await _post_order(client, user_id=user_id, idempotency_key=key)
+        second = await _post_order(client, user_id=user_id, idempotency_key=key)
 
         assert first.status_code == 201
         assert second.status_code == 201
@@ -279,29 +275,27 @@ class TestIdempotency:
         assert first.json()["preference_id"] == second.json()["preference_id"]
 
 
-
-
 class TestMissingHeaders:
     """Requests without required headers must fail."""
 
-    def test_missing_x_user_id_returns_401(self, client: TestClient) -> None:
-        response = client.post(
+    async def test_missing_x_user_id_returns_401(self, client: httpx.AsyncClient) -> None:
+        response = await client.post(
             "/orders",
             json={"shipping_address": _VALID_ADDRESS},
             headers={"Idempotency-Key": str(uuid.uuid4())},
         )
         assert response.status_code == 401
 
-    def test_missing_idempotency_key_returns_400(self, client: TestClient) -> None:
-        response = client.post(
+    async def test_missing_idempotency_key_returns_400(self, client: httpx.AsyncClient) -> None:
+        response = await client.post(
             "/orders",
             json={"shipping_address": _VALID_ADDRESS},
             headers={"X-User-Id": str(uuid.uuid4())},
         )
         assert response.status_code == 400
 
-    def test_invalid_user_id_returns_401(self, client: TestClient) -> None:
-        response = client.post(
+    async def test_invalid_user_id_returns_401(self, client: httpx.AsyncClient) -> None:
+        response = await client.post(
             "/orders",
             json={"shipping_address": _VALID_ADDRESS},
             headers={
@@ -316,25 +310,25 @@ class TestCartErrors:
     """Cart service failures must be handled gracefully."""
 
     @respx.mock
-    def test_empty_cart_returns_400(self, client: TestClient) -> None:
+    async def test_empty_cart_returns_400(self, client: httpx.AsyncClient) -> None:
         user_id = str(uuid.uuid4())
         respx.get(f"http://cart-service:8000/cart/{user_id}").mock(
             return_value=httpx.Response(404),
         )
 
-        response = _post_order(client, user_id=user_id)
+        response = await _post_order(client, user_id=user_id)
 
         assert response.status_code == 400
         assert "Cart" in response.json().get("title", "")
 
     @respx.mock
-    def test_cart_service_down_returns_502(self, client: TestClient) -> None:
+    async def test_cart_service_down_returns_502(self, client: httpx.AsyncClient) -> None:
         user_id = str(uuid.uuid4())
         respx.get(f"http://cart-service:8000/cart/{user_id}").mock(
             side_effect=httpx.ConnectTimeout("Timeout"),
         )
 
-        response = _post_order(client, user_id=user_id)
+        response = await _post_order(client, user_id=user_id)
 
         assert response.status_code == 502
 
@@ -343,7 +337,7 @@ class TestInventoryErrors:
     """Inventory service failures must be handled gracefully."""
 
     @respx.mock
-    def test_insufficient_stock_returns_409(self, client: TestClient) -> None:
+    async def test_insufficient_stock_returns_409(self, client: httpx.AsyncClient) -> None:
         user_id = str(uuid.uuid4())
         cart_payload = _cart_response(user_id)
         respx.get(f"http://cart-service:8000/cart/{user_id}").mock(
@@ -359,7 +353,6 @@ class TestInventoryErrors:
             ),
         )
         def reserve_409_check(request):
-            import json
             data = json.loads(request.read())
             for item in data:
                 assert "order_id" in item
@@ -370,7 +363,7 @@ class TestInventoryErrors:
             side_effect=reserve_409_check
         )
 
-        response = _post_order(client, user_id=user_id)
+        response = await _post_order(client, user_id=user_id)
 
         assert response.status_code == 409
         body = response.json()
@@ -381,7 +374,7 @@ class TestInventoryErrors:
         assert body["items"][0]["available"] == 0
 
     @respx.mock
-    def test_inventory_service_down_returns_502(self, client: TestClient) -> None:
+    async def test_inventory_service_down_returns_502(self, client: httpx.AsyncClient) -> None:
         user_id = str(uuid.uuid4())
         cart_payload = _cart_response(user_id)
         respx.get(f"http://cart-service:8000/cart/{user_id}").mock(
@@ -394,7 +387,7 @@ class TestInventoryErrors:
             side_effect=httpx.ConnectTimeout("Timeout"),
         )
 
-        response = _post_order(client, user_id=user_id)
+        response = await _post_order(client, user_id=user_id)
 
         assert response.status_code == 502
 
@@ -403,8 +396,8 @@ class TestPaymentsErrors:
     """Payments service failures must trigger stock rollback and return 502."""
 
     @respx.mock
-    def test_payments_service_down_rollbacks_stock_and_returns_502(
-        self, client: TestClient,
+    async def test_payments_service_down_rollbacks_stock_and_returns_502(
+        self, client: httpx.AsyncClient,
     ) -> None:
         """If Payments is unreachable, stock is rolled back and 502 is returned."""
         user_id = str(uuid.uuid4())
@@ -425,14 +418,14 @@ class TestPaymentsErrors:
             side_effect=httpx.ConnectTimeout("Timeout"),
         )
 
-        response = _post_order(client, user_id=user_id)
+        response = await _post_order(client, user_id=user_id)
 
         assert response.status_code == 502
         assert rollback_route.called
 
     @respx.mock
-    def test_payments_service_error_rollbacks_stock_and_returns_502(
-        self, client: TestClient,
+    async def test_payments_service_error_rollbacks_stock_and_returns_502(
+        self, client: httpx.AsyncClient,
     ) -> None:
         """If Payments returns a 4xx/5xx, stock is rolled back and 502 is returned."""
         user_id = str(uuid.uuid4())
@@ -453,14 +446,14 @@ class TestPaymentsErrors:
             return_value=httpx.Response(502, json={"detail": "Bad gateway"}),
         )
 
-        response = _post_order(client, user_id=user_id)
+        response = await _post_order(client, user_id=user_id)
 
         assert response.status_code == 502
         assert rollback_route.called
 
     @respx.mock
-    def test_payments_failure_allows_retry_with_same_idempotency_key(
-        self, client: TestClient,
+    async def test_payments_failure_allows_retry_with_same_idempotency_key(
+        self, client: httpx.AsyncClient,
     ) -> None:
         """After a Payments failure, the order is deleted so the client can
         retry using the same Idempotency-Key and succeed on the next attempt."""
@@ -485,12 +478,12 @@ class TestPaymentsErrors:
             return_value=httpx.Response(502, json={"detail": "MP down"}),
         )
 
-        first = _post_order(client, user_id=user_id, idempotency_key=key)
+        first = await _post_order(client, user_id=user_id, idempotency_key=key)
         assert first.status_code == 502
 
     @respx.mock
-    def test_order_is_deleted_from_db_after_payments_failure(
-        self, client: TestClient,
+    async def test_order_is_deleted_from_db_after_payments_failure(
+        self, client: httpx.AsyncClient,
     ) -> None:
         """Verify that after a Payments failure the order no longer appears in
         the list (i.e. it was deleted from the DB as part of compensation)."""
@@ -514,11 +507,11 @@ class TestPaymentsErrors:
             return_value=httpx.Response(502, json={"detail": "MP down"}),
         )
 
-        fail_response = _post_order(client, user_id=user_id, idempotency_key=key)
+        fail_response = await _post_order(client, user_id=user_id, idempotency_key=key)
         assert fail_response.status_code == 502
 
         # Check no order was left in DB for this user.
-        list_response = client.get(
+        list_response = await client.get(
             "/orders",
             headers={"X-User-Id": user_id},
         )
@@ -529,8 +522,8 @@ class TestPaymentsErrors:
 class TestValidationErrors:
     """Request body validation must fail with proper errors."""
 
-    def test_missing_shipping_address_returns_422(self, client: TestClient) -> None:
-        response = client.post(
+    async def test_missing_shipping_address_returns_422(self, client: httpx.AsyncClient) -> None:
+        response = await client.post(
             "/orders",
             json={},
             headers={
@@ -540,8 +533,8 @@ class TestValidationErrors:
         )
         assert response.status_code == 422
 
-    def test_incomplete_address_returns_422(self, client: TestClient) -> None:
-        response = client.post(
+    async def test_incomplete_address_returns_422(self, client: httpx.AsyncClient) -> None:
+        response = await client.post(
             "/orders",
             json={"shipping_address": {"street": "Only street"}},
             headers={

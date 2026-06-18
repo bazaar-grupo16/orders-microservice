@@ -43,9 +43,10 @@ async def _run_pending_payment_expiration_loop() -> None:
 
     while True:
         try:
-            with SessionLocal() as db:
-                expire_pending_payment_orders(db)
+            async with SessionLocal() as db:
+                await expire_pending_payment_orders(db)
         except Exception as exc:
             logger.error("Pending payment expiration worker failed: %s", exc)
 
         await asyncio.sleep(interval_seconds)
+

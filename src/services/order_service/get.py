@@ -2,21 +2,21 @@
 
 import uuid
 
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.exceptions import OrderAccessDeniedError, OrderNotFoundError
 from src.models.order import Order
 from src.repositories import order_repository
 
 
-def get_order(
-	db: Session,
+async def get_order(
+	db: AsyncSession,
 	*,
 	order_id: uuid.UUID,
 	user_id: uuid.UUID,
 ) -> Order:
 	"""Retrieve a single order, enforcing ownership."""
-	order = order_repository.get_by_id(db, order_id)
+	order = await order_repository.get_by_id(db, order_id)
 	if order is None:
 		raise OrderNotFoundError(str(order_id))
 	if order.user_id != user_id:
@@ -24,14 +24,14 @@ def get_order(
 	return order
 
 
-def get_order_for_seller(
-	db: Session,
+async def get_order_for_seller(
+	db: AsyncSession,
 	*,
 	order_id: uuid.UUID,
 	seller_id: uuid.UUID,
 ) -> Order:
 	"""Retrieve an order for a seller who has items in it."""
-	order = order_repository.get_by_id(db, order_id)
+	order = await order_repository.get_by_id(db, order_id)
 	if order is None:
 		raise OrderNotFoundError(str(order_id))
 
@@ -42,8 +42,8 @@ def get_order_for_seller(
 	return order
 
 
-def list_orders(
-	db: Session,
+async def list_orders(
+	db: AsyncSession,
 	*,
 	user_id: uuid.UUID,
 	status_filter: str | None = None,
@@ -51,9 +51,9 @@ def list_orders(
 	page: int = 1,
 	size: int = 20,
 ) -> tuple[list[Order], int]:
-	"""Return a paginated list of orders for the authenticated user."""
+	"""Return a paginated list of orders belonging to the user."""
 	offset = (page - 1) * size
-	orders, total = order_repository.list_by_user(
+	orders, total = await order_repository.list_by_user(
 		db,
 		user_id,
 		status_filter=status_filter,
@@ -64,8 +64,8 @@ def list_orders(
 	return list(orders), total
 
 
-def list_sales(
-	db: Session,
+async def list_sales(
+	db: AsyncSession,
 	*,
 	seller_id: uuid.UUID,
 	status_filter: str | None = None,
@@ -74,7 +74,7 @@ def list_sales(
 ) -> tuple[list[Order], int]:
 	"""List orders that include items sold by *seller_id*."""
 	offset = (page - 1) * size
-	orders, total = order_repository.list_by_seller(
+	orders, total = await order_repository.list_by_seller(
 		db,
 		seller_id=seller_id,
 		status_filter=status_filter,
@@ -84,16 +84,17 @@ def list_sales(
 	return list(orders), total
 
 
-def get_status_history(
-	db: Session,
+async def get_status_history(
+	db: AsyncSession,
 	*,
 	order_id: uuid.UUID,
 	seller_id: uuid.UUID | None = None,
 ) -> list:
 	"""Return status transition history for an order."""
-	history = order_repository.get_status_history(
+	history = await order_repository.get_status_history(
 		db,
 		order_id=order_id,
 		seller_id=seller_id,
 	)
 	return list(history)
+

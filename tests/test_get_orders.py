@@ -4,8 +4,8 @@ Integration tests for ``GET /orders`` and ``GET /orders/{id}``.
 
 import uuid
 
-from fastapi.testclient import TestClient
-from sqlalchemy.orm import Session
+import httpx
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.models.order import Order
 from src.models.order_status import OrderStatus
@@ -24,13 +24,13 @@ _VALID_ADDRESS = {
 }
 
 
-def _create_db_order(
-    db_session: Session,
+async def _create_db_order(
+    db_session: AsyncSession,
     user_id: uuid.UUID,
     status: str = OrderStatus.PENDIENTE_DE_PAGO,
     seller_id: uuid.UUID | None = None,
 ) -> Order:
-    return order_repository.create_order(
+    return await order_repository.create_order(
         db_session,
         user_id=user_id,
         idempotency_key=str(uuid.uuid4()),
@@ -54,13 +54,13 @@ def _create_db_order(
 class TestGetOrder:
     """Tests for ``GET /orders/{id}``."""
 
-    def test_returns_order_for_owner(
-        self, client: TestClient, db_session: Session
+    async def test_returns_order_for_owner(
+        self, client: httpx.AsyncClient, db_session: AsyncSession
     ) -> None:
         user_id = uuid.uuid4()
-        order = _create_db_order(db_session, user_id)
+        order = await _create_db_order(db_session, user_id)
 
-        response = client.get(
+        response = await client.get(
             f"/orders/{order.id}",
             headers={"X-User-Id": str(user_id)},
         )
@@ -71,14 +71,14 @@ class TestGetOrder:
         assert data["user_id"] == str(user_id)
         assert len(data["items"]) == 1
 
-    def test_returns_403_for_other_user(
-        self, client: TestClient, db_session: Session
+    async def test_returns_403_for_other_user(
+        self, client: httpx.AsyncClient, db_session: AsyncSession
     ) -> None:
         owner_id = uuid.uuid4()
-        order = _create_db_order(db_session, owner_id)
+        order = await _create_db_order(db_session, owner_id)
 
         other_user_id = uuid.uuid4()
-        response = client.get(
+        response = await client.get(
             f"/orders/{order.id}",
             headers={"X-User-Id": str(other_user_id)},
         )
@@ -86,13 +86,13 @@ class TestGetOrder:
         assert response.status_code == 403
         assert response.json()["title"] == "Access Denied"
 
-    def test_returns_404_for_nonexistent_order(
-        self, client: TestClient
+    async def test_returns_404_for_nonexistent_order(
+        self, client: httpx.AsyncClient
     ) -> None:
         user_id = uuid.uuid4()
         fake_id = uuid.uuid4()
 
-        response = client.get(
+        response = await client.get(
             f"/orders/{fake_id}",
             headers={"X-User-Id": str(user_id)},
         )
@@ -100,14 +100,14 @@ class TestGetOrder:
         assert response.status_code == 404
         assert response.json()["title"] == "Order Not Found"
 
-    def test_includes_persisted_status_history_with_timestamps(
-        self, client: TestClient, db_session: Session
+    async def test_includes_persisted_status_history_with_timestamps(
+        self, client: httpx.AsyncClient, db_session: AsyncSession
     ) -> None:
         user_id = uuid.uuid4()
-        order = _create_db_order(db_session, user_id)
+        order = await _create_db_order(db_session, user_id)
         item = order.items[0]
 
-        _record_status_change(
+        await _record_status_change(
             db_session,
             order_id=order.id,
             item_id=item.id,
@@ -116,11 +116,11 @@ class TestGetOrder:
             origin="webhook",
         )
 
-        first_response = client.get(
+        first_response = await client.get(
             f"/orders/{order.id}",
             headers={"X-User-Id": str(user_id)},
         )
-        second_response = client.get(
+        second_response = await client.get(
             f"/orders/{order.id}",
             headers={"X-User-Id": str(user_id)},
         )
@@ -147,17 +147,17 @@ class TestGetOrder:
 class TestListOrders:
     """Tests for ``GET /orders``."""
 
-    def test_returns_user_orders(
-        self, client: TestClient, db_session: Session
+    async def test_returns_user_orders(
+        self, client: httpx.AsyncClient, db_session: AsyncSession
     ) -> None:
         user_id = uuid.uuid4()
-        _create_db_order(db_session, user_id)
-        _create_db_order(db_session, user_id)
-        
-        # Other user's order
-        _create_db_order(db_session, uuid.uuid4())
+        await _create_db_order(db_session, user_id)
+        await _create_db_order(db_session, user_id)
 
-        response = client.get(
+        # Other user's order
+        await _create_db_order(db_session, uuid.uuid4())
+
+        response = await client.get(
             "/orders",
             headers={"X-User-Id": str(user_id)},
         )
@@ -168,15 +168,15 @@ class TestListOrders:
         assert len(data["orders"]) == 2
         assert all(o["user_id"] == str(user_id) for o in data["orders"])
 
-    def test_filters_by_status(
-        self, client: TestClient, db_session: Session
+    async def test_filters_by_status(
+        self, client: httpx.AsyncClient, db_session: AsyncSession
     ) -> None:
         user_id = uuid.uuid4()
-        _create_db_order(db_session, user_id, OrderStatus.PENDIENTE_DE_PAGO)
-        _create_db_order(db_session, user_id, OrderStatus.CONFIRMADA)
-        _create_db_order(db_session, user_id, OrderStatus.CONFIRMADA)
+        await _create_db_order(db_session, user_id, OrderStatus.PENDIENTE_DE_PAGO)
+        await _create_db_order(db_session, user_id, OrderStatus.CONFIRMADA)
+        await _create_db_order(db_session, user_id, OrderStatus.CONFIRMADA)
 
-        response = client.get(
+        response = await client.get(
             "/orders?order_status=CONFIRMADA",
             headers={"X-User-Id": str(user_id)},
         )
@@ -187,18 +187,18 @@ class TestListOrders:
         assert len(data["orders"]) == 2
         assert all(o["status"] == OrderStatus.CONFIRMADA for o in data["orders"])
 
-    def test_filters_by_seller_id(
-        self, client: TestClient, db_session: Session
+    async def test_filters_by_seller_id(
+        self, client: httpx.AsyncClient, db_session: AsyncSession
     ) -> None:
         user_id = uuid.uuid4()
         seller_a = uuid.uuid4()
         seller_b = uuid.uuid4()
 
-        _create_db_order(db_session, user_id, seller_id=seller_a)
-        _create_db_order(db_session, user_id, seller_id=seller_a)
-        _create_db_order(db_session, user_id, seller_id=seller_b)
+        await _create_db_order(db_session, user_id, seller_id=seller_a)
+        await _create_db_order(db_session, user_id, seller_id=seller_a)
+        await _create_db_order(db_session, user_id, seller_id=seller_b)
 
-        response = client.get(
+        response = await client.get(
             f"/orders?seller_id={seller_a}",
             headers={"X-User-Id": str(user_id)},
         )
@@ -212,15 +212,15 @@ class TestListOrders:
             for order in data["orders"]
         )
 
-    def test_sales_endpoint_returns_only_seller_items(
-        self, client: TestClient, db_session: Session
+    async def test_sales_endpoint_returns_only_seller_items(
+        self, client: httpx.AsyncClient, db_session: AsyncSession
     ) -> None:
         buyer = uuid.uuid4()
         seller = uuid.uuid4()
         other_seller = uuid.uuid4()
 
         # Create an order that has items from seller and other_seller
-        order_repository.create_order(
+        await order_repository.create_order(
             db_session,
             user_id=buyer,
             idempotency_key=str(uuid.uuid4()),
@@ -233,7 +233,7 @@ class TestListOrders:
             ],
         )
 
-        response = client.get(
+        response = await client.get(
             "/orders/sales",
             headers={"X-User-Id": str(seller)},
         )
@@ -247,14 +247,14 @@ class TestListOrders:
         assert len(items) == 1
         assert items[0]["seller_id"] == str(seller)
 
-    def test_pagination(
-        self, client: TestClient, db_session: Session
+    async def test_pagination(
+        self, client: httpx.AsyncClient, db_session: AsyncSession
     ) -> None:
         user_id = uuid.uuid4()
         for _ in range(5):
-            _create_db_order(db_session, user_id)
+            await _create_db_order(db_session, user_id)
 
-        response = client.get(
+        response = await client.get(
             "/orders?page=2&size=2",
             headers={"X-User-Id": str(user_id)},
         )
@@ -266,12 +266,12 @@ class TestListOrders:
         assert data["size"] == 2
         assert len(data["orders"]) == 2
 
-    def test_returns_empty_list_when_no_orders(
-        self, client: TestClient
+    async def test_returns_empty_list_when_no_orders(
+        self, client: httpx.AsyncClient
     ) -> None:
         user_id = uuid.uuid4()
 
-        response = client.get(
+        response = await client.get(
             "/orders",
             headers={"X-User-Id": str(user_id)},
         )
@@ -285,15 +285,15 @@ class TestListOrders:
 class TestGetSellerOrder:
     """Tests for ``GET /orders/sales/{order_id}``."""
 
-    def test_seller_can_get_order_with_their_items(
-        self, client: TestClient, db_session: Session
+    async def test_seller_can_get_order_with_their_items(
+        self, client: httpx.AsyncClient, db_session: AsyncSession
     ) -> None:
         buyer = uuid.uuid4()
         seller = uuid.uuid4()
 
-        order = _create_db_order(db_session, buyer, seller_id=seller)
+        order = await _create_db_order(db_session, buyer, seller_id=seller)
 
-        response = client.get(
+        response = await client.get(
             f"/orders/sales/{order.id}",
             headers={"X-User-Id": str(seller)},
         )
@@ -306,16 +306,16 @@ class TestGetSellerOrder:
         assert "status" in data["items"][0]  # Verify logistic status is present
         assert "tracking_code" in data["items"][0]
 
-    def test_seller_cannot_get_order_without_their_items(
-        self, client: TestClient, db_session: Session
+    async def test_seller_cannot_get_order_without_their_items(
+        self, client: httpx.AsyncClient, db_session: AsyncSession
     ) -> None:
         buyer = uuid.uuid4()
         seller_a = uuid.uuid4()
         seller_b = uuid.uuid4()
 
-        order = _create_db_order(db_session, buyer, seller_id=seller_a)
+        order = await _create_db_order(db_session, buyer, seller_id=seller_a)
 
-        response = client.get(
+        response = await client.get(
             f"/orders/sales/{order.id}",
             headers={"X-User-Id": str(seller_b)},
         )
@@ -323,15 +323,15 @@ class TestGetSellerOrder:
         assert response.status_code == 403
         assert "Access denied" in response.json()["detail"]
 
-    def test_seller_sees_only_their_items(
-        self, client: TestClient, db_session: Session
+    async def test_seller_sees_only_their_items(
+        self, client: httpx.AsyncClient, db_session: AsyncSession
     ) -> None:
         buyer = uuid.uuid4()
         seller_a = uuid.uuid4()
         seller_b = uuid.uuid4()
 
         # Create order with items from both sellers
-        order = order_repository.create_order(
+        order = await order_repository.create_order(
             db_session,
             user_id=buyer,
             idempotency_key=str(uuid.uuid4()),
@@ -344,7 +344,7 @@ class TestGetSellerOrder:
             ],
         )
 
-        response = client.get(
+        response = await client.get(
             f"/orders/sales/{order.id}",
             headers={"X-User-Id": str(seller_a)},
         )
@@ -354,14 +354,14 @@ class TestGetSellerOrder:
         assert len(data["items"]) == 1
         assert data["items"][0]["seller_id"] == str(seller_a)
 
-    def test_seller_history_includes_only_their_item_events(
-        self, client: TestClient, db_session: Session
+    async def test_seller_history_includes_only_their_item_events(
+        self, client: httpx.AsyncClient, db_session: AsyncSession
     ) -> None:
         buyer = uuid.uuid4()
         seller_a = uuid.uuid4()
         seller_b = uuid.uuid4()
 
-        order = order_repository.create_order(
+        order = await order_repository.create_order(
             db_session,
             user_id=buyer,
             idempotency_key=str(uuid.uuid4()),
@@ -377,7 +377,7 @@ class TestGetSellerOrder:
         item_a = next(item for item in order.items if item.seller_id == seller_a)
         item_b = next(item for item in order.items if item.seller_id == seller_b)
 
-        _record_status_change(
+        await _record_status_change(
             db_session,
             order_id=order.id,
             item_id=None,
@@ -385,7 +385,7 @@ class TestGetSellerOrder:
             new_status="CONFIRMADA",
             origin="webhook",
         )
-        _record_status_change(
+        await _record_status_change(
             db_session,
             order_id=order.id,
             item_id=item_a.id,
@@ -393,7 +393,7 @@ class TestGetSellerOrder:
             new_status="EN_PREPARACION",
             origin="seller",
         )
-        _record_status_change(
+        await _record_status_change(
             db_session,
             order_id=order.id,
             item_id=item_b.id,
@@ -402,7 +402,7 @@ class TestGetSellerOrder:
             origin="seller",
         )
 
-        response = client.get(
+        response = await client.get(
             f"/orders/sales/{order.id}",
             headers={"X-User-Id": str(seller_a)},
         )
@@ -417,8 +417,9 @@ class TestGetSellerOrder:
         assert len(data["items"][0]["status_history"]) == 1
         assert data["items"][0]["status_history"][0]["item_id"] == str(item_a.id)
 
-def _record_status_change(
-    db: Session,
+
+async def _record_status_change(
+    db: AsyncSession,
     *,
     order_id: uuid.UUID,
     item_id: uuid.UUID | None,
@@ -428,7 +429,7 @@ def _record_status_change(
     tracking_code: str | None = None,
 ) -> OrderStatusHistory:
     """Backward-compatible alias for ``create_status_change``."""
-    history = order_repository.create_status_change(
+    history = await order_repository.create_status_change(
         db,
         order_id=order_id,
         item_id=item_id,
@@ -437,5 +438,5 @@ def _record_status_change(
         origin=origin,
         tracking_code=tracking_code,
     )
-    db.commit()
+    await db.commit()
     return history

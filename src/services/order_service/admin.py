@@ -2,15 +2,15 @@
 
 import uuid
 
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.exceptions import OrderNotFoundError
 from src.models.order import Order
 from src.repositories import order_repository
 
 
-def list_all_orders(
-    db: Session,
+async def list_all_orders(
+    db: AsyncSession,
     *,
     status_filter: str | None = None,
     page: int = 1,
@@ -18,7 +18,7 @@ def list_all_orders(
 ) -> tuple[list[Order], int]:
     """Return a paginated list of all orders (admin only)."""
     offset = (page - 1) * size
-    orders, total = order_repository.list_all(
+    orders, total = await order_repository.list_all(
         db,
         status_filter=status_filter,
         offset=offset,
@@ -27,13 +27,14 @@ def list_all_orders(
     return list(orders), total
 
 
-def get_order_as_admin(
-    db: Session,
+async def get_order_as_admin(
+    db: AsyncSession,
     *,
     order_id: uuid.UUID,
 ) -> Order:
     """Retrieve any order by ID without ownership checks."""
-    order = order_repository.get_by_id(db, order_id)
+    order = await order_repository.get_by_id(db, order_id)
     if order is None:
         raise OrderNotFoundError(str(order_id))
     return order
+

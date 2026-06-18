@@ -24,19 +24,20 @@ def _base_url() -> str:
     return get_settings().INVENTORY_SERVICE_URL
 
 
-def get_stock_levels(product_ids: list[str]) -> dict[str, int]:
+async def get_stock_levels(product_ids: list[str]) -> dict[str, int]:
     """Fetch stock levels for a set of product IDs in one request."""
     if not product_ids:
         return {}
 
     url = f"{_base_url()}/internal/products/stocks"
     try:
-        response = httpx.post(
-            url,
-            json={"product_ids": product_ids},
-            headers=build_observability_headers(),
-            timeout=_TIMEOUT,
-        )
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                url,
+                json={"product_ids": product_ids},
+                headers=build_observability_headers(),
+                timeout=_TIMEOUT,
+            )
     except httpx.HTTPError as exc:
         logger.error("Inventory service unreachable on stock lookup: %s", exc)
         raise ExternalServiceError("inventory-service", "Service unreachable")
@@ -55,7 +56,7 @@ def get_stock_levels(product_ids: list[str]) -> dict[str, int]:
     return {str(product_id): int(quantity) for product_id, quantity in payload.items()}
 
 
-def reserve_stock(order_id: uuid.UUID, items: list[dict[str, Any]]) -> dict[str, Any]:
+async def reserve_stock(order_id: uuid.UUID, items: list[dict[str, Any]]) -> dict[str, Any]:
     """Request a stock reservation for the given items under order_id.
     
     If any reservation fails, it rolls back
@@ -87,12 +88,13 @@ def reserve_stock(order_id: uuid.UUID, items: list[dict[str, Any]]) -> dict[str,
         for item in items
     ]
     try:
-        response = httpx.post(
-            url,
-            json=payload,
-            headers=build_observability_headers(),
-            timeout=_TIMEOUT,
-        )
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                url,
+                json=payload,
+                headers=build_observability_headers(),
+                timeout=_TIMEOUT,
+            )
     except httpx.HTTPError as exc:
         logger.error("Inventory service unreachable on reserve: %s", exc)
         raise ExternalServiceError("inventory-service", "Service unreachable")
@@ -116,7 +118,7 @@ def reserve_stock(order_id: uuid.UUID, items: list[dict[str, Any]]) -> dict[str,
     return response.json()
 
 
-def commit_stock(order_id: uuid.UUID) -> dict[str, Any]:
+async def commit_stock(order_id: uuid.UUID) -> dict[str, Any]:
     """Convert a reservation into a definitive stock deduction.
 
     Parameters
@@ -131,12 +133,13 @@ def commit_stock(order_id: uuid.UUID) -> dict[str, Any]:
     """
     url = f"{_base_url()}/internal/products/stock/commit"
     try:
-        response = httpx.post(
-            url,
-            json={"order_id": str(order_id)},
-            headers=build_observability_headers(),
-            timeout=_TIMEOUT,
-        )
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                url,
+                json={"order_id": str(order_id)},
+                headers=build_observability_headers(),
+                timeout=_TIMEOUT,
+            )
     except httpx.HTTPError as exc:
         logger.error("Inventory service unreachable on commit: %s", exc)
         raise ExternalServiceError("inventory-service", "Service unreachable")
@@ -157,7 +160,7 @@ def commit_stock(order_id: uuid.UUID) -> dict[str, Any]:
     return response.json()
 
 
-def release_stock(order_id: uuid.UUID) -> dict[str, Any]:
+async def release_stock(order_id: uuid.UUID) -> dict[str, Any]:
     """Release previously reserved stock back to availability.
 
     Parameters
@@ -172,12 +175,13 @@ def release_stock(order_id: uuid.UUID) -> dict[str, Any]:
     """
     url = f"{_base_url()}/internal/products/stock/release"
     try:
-        response = httpx.post(
-            url,
-            json={"order_id": str(order_id)},
-            headers=build_observability_headers(),
-            timeout=_TIMEOUT,
-        )
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                url,
+                json={"order_id": str(order_id)},
+                headers=build_observability_headers(),
+                timeout=_TIMEOUT,
+            )
     except httpx.HTTPError as exc:
         logger.error("Inventory service unreachable on release: %s", exc)
         raise ExternalServiceError("inventory-service", "Service unreachable")
@@ -193,15 +197,17 @@ def release_stock(order_id: uuid.UUID) -> dict[str, Any]:
         )
     return response.json() if response.status_code == 200 else {}
 
-def release_stock_for_item(order_id: uuid.UUID, product_id: uuid.UUID) -> None:
+
+async def release_stock_for_item(order_id: uuid.UUID, product_id: uuid.UUID) -> None:
     url = f"{_base_url()}/internal/products/{str(product_id)}/stock/release"
     try:
-        response = httpx.post(
-            url,
-            json={"order_id": str(order_id)},
-            headers=build_observability_headers(),
-            timeout=_TIMEOUT,
-        )
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                url,
+                json={"order_id": str(order_id)},
+                headers=build_observability_headers(),
+                timeout=_TIMEOUT,
+            )
     except httpx.HTTPError as exc:
         logger.error("Inventory service unreachable on release: %s", exc)
         raise ExternalServiceError("inventory-service", "Service unreachable")
@@ -215,3 +221,4 @@ def release_stock_for_item(order_id: uuid.UUID, product_id: uuid.UUID) -> None:
             "inventory-service",
             f"Release failed: status {response.status_code}",
         )
+

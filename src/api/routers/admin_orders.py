@@ -27,14 +27,14 @@ router = APIRouter(
     status_code=status.HTTP_200_OK,
     summary="Listar todas las órdenes (Administrador)",
 )
-def list_all_orders_admin(
+async def list_all_orders_admin(
     db: DbSession,
     params: Annotated[AdminListOrdersQueryParams, Depends(get_admin_list_orders_query_params)],
 ) -> OrderListResponse:
     status_filter = (
         params.order_status.value if params.order_status is not None else None
     )
-    orders, total = order_service.list_all_orders(
+    orders, total = await order_service.list_all_orders(
         db,
         status_filter=status_filter,
         page=params.page,
@@ -61,13 +61,13 @@ def list_all_orders_admin(
     status_code=status.HTTP_200_OK,
     summary="Obtener el detalle de cualquier orden",
 )
-def get_order_detail_admin(
+async def get_order_detail_admin(
     order_id: UUID,
     db: DbSession,
 ) -> OrderResponse:
-    order = order_service.get_order_as_admin(db, order_id=order_id)
+    order = await order_service.get_order_as_admin(db, order_id=order_id)
 
-    full_history = order_service.get_status_history(
+    full_history = await order_service.get_status_history(
         db,
         order_id=order_id,
     )
@@ -88,3 +88,4 @@ def get_order_detail_admin(
     order_dict["items"] = item_dicts
     order_dict["status_history"] = full_history
     return OrderResponse.model_validate(order_dict)
+

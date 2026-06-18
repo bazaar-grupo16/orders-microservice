@@ -25,20 +25,20 @@ class MetricsService:
     def __init__(self, repository: MetricsRepository):
         self.repository = repository
 
-    def get_orders_summary(self, params: OrderSummaryQueryParams) -> OrderSummaryMetricResponse:
+    async def get_orders_summary(self, params: OrderSummaryQueryParams) -> OrderSummaryMetricResponse:
         req_id = get_correlation_id()
         logger.info(
             "Calculando orders summary",
             extra={"request_id": req_id, "params": params.model_dump(mode="json")}
         )
 
-        total_orders, total_amount = self.repository.get_orders_summary_totals(
+        total_orders, total_amount = await self.repository.get_orders_summary_totals(
             params.start_date, params.end_date
         )
-        distribution = self.repository.get_orders_distribution_by_status(
+        distribution = await self.repository.get_orders_distribution_by_status(
             params.start_date, params.end_date
         )
-        timeseries_data = self.repository.get_orders_timeseries(
+        timeseries_data = await self.repository.get_orders_timeseries(
             params.start_date, params.end_date, params.interval
         )
 
@@ -51,29 +51,29 @@ class MetricsService:
             timeseries=[OrderTimeseriesData(**t) for t in timeseries_data],
         )
 
-    def get_top_selling_products(self, params: TopSellingQueryParams) -> TopSellingProductsResponse:
+    async def get_top_selling_products(self, params: TopSellingQueryParams) -> TopSellingProductsResponse:
         req_id = get_correlation_id()
         logger.info(
             "Calculando top selling products",
             extra={"request_id": req_id, "params": params.model_dump(mode="json")}
         )
 
-        items = self.repository.get_top_selling_products(
+        items = await self.repository.get_top_selling_products(
             params.start_date, params.end_date, params.limit
         )
         return TopSellingProductsResponse(items=items)
 
-    def get_category_sales(self, start_date: datetime, end_date: datetime) -> CategorySalesResponse:
+    async def get_category_sales(self, start_date: datetime, end_date: datetime) -> CategorySalesResponse:
         req_id = get_correlation_id()
         logger.info(
             "Calculando category sales",
             extra={"request_id": req_id, "start_date": start_date.isoformat(), "end_date": end_date.isoformat()}
         )
 
-        items = self.repository.get_category_sales(start_date, end_date)
+        items = await self.repository.get_category_sales(start_date, end_date)
         return CategorySalesResponse(items=items)
 
-    def export_metrics_csv(self, params: ExportMetricsQueryParams) -> str:
+    async def export_metrics_csv(self, params: ExportMetricsQueryParams) -> str:
         req_id = get_correlation_id()
         logger.info(
             "Exportando metricas a CSV para tipo: %s",
@@ -85,7 +85,7 @@ class MetricsService:
         writer = csv.writer(output)
 
         if params.metric_type == "orders":
-            timeseries_data = self.repository.get_orders_timeseries(
+            timeseries_data = await self.repository.get_orders_timeseries(
                 params.start_date, params.end_date, "day"
             )
             writer.writerow(["Date", "Orders Count", "Amount"])
@@ -93,7 +93,7 @@ class MetricsService:
                 writer.writerow([row["date"], row["orders_count"], row["amount"]])
 
         elif params.metric_type == "products":
-            items = self.repository.get_top_selling_products(
+            items = await self.repository.get_top_selling_products(
                 params.start_date, params.end_date, 1000
             )
             writer.writerow(["Product ID", "Product Name", "Total Quantity Sold", "Total Revenue"])
@@ -106,7 +106,7 @@ class MetricsService:
                 ])
 
         elif params.metric_type == "categories":
-            items = self.repository.get_category_sales(
+            items = await self.repository.get_category_sales(
                 params.start_date, params.end_date
             )
             writer.writerow(["Category", "Orders Count", "Total Amount"])
@@ -114,3 +114,4 @@ class MetricsService:
                 writer.writerow([row["category"], row["orders_count"], row["total_amount"]])
 
         return output.getvalue()
+

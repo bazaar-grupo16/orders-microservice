@@ -25,14 +25,15 @@ router = APIRouter(tags=["Health"])
 _READYZ_TIMEOUT = 3.0
 
 
-def _check_readyz_endpoint(service_name: str, base_url: str) -> bool:
+async def _check_readyz_endpoint(service_name: str, base_url: str) -> bool:
     """Check that a sibling microservice exposes a healthy ``/readyz`` endpoint."""
     try:
-        response = httpx.get(
-            f"{base_url}/readyz",
-            timeout=_READYZ_TIMEOUT,
-            headers=build_observability_headers(),
-        )
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                f"{base_url}/readyz",
+                timeout=_READYZ_TIMEOUT,
+                headers=build_observability_headers(),
+            )
     except httpx.HTTPError as exc:
         logger.error("%s readiness check failed: %s", service_name, exc)
         return False
@@ -70,7 +71,7 @@ async def livez() -> dict[str, str]:
 )
 async def readyz(response: Response) -> dict[str, str]:
     """Readiness probe — checks database connectivity and sibling services."""
-    if check_db_connection():
+    if await check_db_connection():
         settings = get_settings()
         dependencies = (
             ("Cart service", settings.CART_SERVICE_URL),
@@ -79,7 +80,7 @@ async def readyz(response: Response) -> dict[str, str]:
         )
 
         for service_name, base_url in dependencies:
-            if not _check_readyz_endpoint(service_name, base_url):
+            if not await _check_readyz_endpoint(service_name, base_url):
                 response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
                 return {"status": "unavailable"}
 

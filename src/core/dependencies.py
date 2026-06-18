@@ -4,23 +4,21 @@ FastAPI dependencies for dependency injection.
 Provides database sessions and user identity extraction.
 """
 
-from collections.abc import Generator
+from collections.abc import AsyncGenerator
 from typing import Annotated
 from uuid import UUID
 
 from fastapi import Depends, Header, HTTPException, status
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.database import SessionLocal
 
 
-def _get_db() -> Generator[Session, None, None]:
+async def _get_db() -> AsyncGenerator[AsyncSession, None]:
     """Yield a SQLAlchemy session and ensure it is closed afterwards."""
-    db = SessionLocal()
-    try:
+    async with SessionLocal() as db:
         yield db
-    finally:
-        db.close()
+
 
 
 def _get_current_user_id(
@@ -54,5 +52,6 @@ def _get_current_user_id(
 
 
 # ── Re-usable annotated dependencies ─────────────────────────
-DbSession = Annotated[Session, Depends(_get_db)]
+DbSession = Annotated[AsyncSession, Depends(_get_db)]
 CurrentUserId = Annotated[UUID, Depends(_get_current_user_id)]
+

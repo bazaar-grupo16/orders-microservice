@@ -55,7 +55,7 @@ def _normalise_cart_item(raw: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def get_cart(user_id: str) -> list[dict[str, Any]]:
+async def get_cart(user_id: str) -> list[dict[str, Any]]:
     """Fetch the user's cart items (normalised to snake_case).
 
     Parameters
@@ -79,11 +79,12 @@ def get_cart(user_id: str) -> list[dict[str, Any]]:
     user_id = str(user_id)
     url = f"{_base_url()}/cart/{user_id}"
     try:
-        response = httpx.get(
-            url,
-            timeout=_TIMEOUT,
-            headers={"X-User-ID": user_id, **build_observability_headers()},
-        )
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                url,
+                timeout=_TIMEOUT,
+                headers={"X-User-ID": user_id, **build_observability_headers()},
+            )
     except httpx.HTTPError as exc:
         logger.error("Cart service unreachable: %s", exc)
         raise ExternalServiceError("cart-service", "Service unreachable")
@@ -109,7 +110,7 @@ def get_cart(user_id: str) -> list[dict[str, Any]]:
     return [_normalise_cart_item(item) for item in raw_items]
 
 
-def delete_cart(user_id: str) -> None:
+async def delete_cart(user_id: str) -> None:
     """Clear the user's cart after a successful checkout.
 
     Raises
@@ -120,11 +121,12 @@ def delete_cart(user_id: str) -> None:
     user_id = str(user_id)
     url = f"{_base_url()}/cart/{user_id}"
     try:
-        response = httpx.delete(
-            url,
-            timeout=_TIMEOUT,
-            headers={"X-User-ID": user_id, **build_observability_headers()},
-        )
+        async with httpx.AsyncClient() as client:
+            response = await client.delete(
+                url,
+                timeout=_TIMEOUT,
+                headers={"X-User-ID": user_id, **build_observability_headers()},
+            )
     except httpx.HTTPError as exc:
         logger.error("Cart service unreachable on delete: %s", exc)
         raise ExternalServiceError("cart-service", "Service unreachable")
@@ -138,3 +140,4 @@ def delete_cart(user_id: str) -> None:
             "cart-service",
             f"Failed to clear cart: status {response.status_code}",
         )
+

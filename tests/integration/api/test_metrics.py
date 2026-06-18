@@ -17,7 +17,6 @@ from datetime import datetime, timezone, timedelta
 
 import httpx
 import respx
-from fastapi.testclient import TestClient
 from httpx import Response
 
 
@@ -26,8 +25,8 @@ from httpx import Response
 _ADMIN_HEADERS = {"X-Is-Admin": "true"}
 
 
-def _get_metrics(
-    client: TestClient,
+async def _get_metrics(
+    client: httpx.AsyncClient,
     path: str,
     params: dict | None = None,
     *,
@@ -35,7 +34,7 @@ def _get_metrics(
 ) -> Response:
     """GET a metrics endpoint with the admin header injected by default."""
     merged_headers = {**_ADMIN_HEADERS, **(headers or {})}
-    return client.get(path, params=params, headers=merged_headers)
+    return await client.get(path, params=params, headers=merged_headers)
 
 
 _VALID_ADDRESS = {
@@ -91,8 +90,7 @@ def _stock_response(product_id: str, quantity: int = 20) -> dict:
     return {"data": {product_id: quantity}}
 
 
-@respx.mock
-def _create_confirmed_order(client: TestClient, user_id: str, product_id: str, category: str = "Electrónica") -> dict:
+async def _create_confirmed_order(client: httpx.AsyncClient, user_id: str, product_id: str, category: str = "Electrónica") -> dict:
     """Seed a CONFIRMADA order through the full checkout + webhook flow."""
     cart_payload = _cart_response_with_category(user_id, product_id, category)
 
@@ -113,7 +111,7 @@ def _create_confirmed_order(client: TestClient, user_id: str, product_id: str, c
     )
 
     idem_key = str(uuid.uuid4())
-    response = client.post(
+    response = await client.post(
         "/orders",
         json={"shipping_address": _VALID_ADDRESS},
         headers={"X-User-Id": user_id, "Idempotency-Key": idem_key},
@@ -126,7 +124,7 @@ def _create_confirmed_order(client: TestClient, user_id: str, product_id: str, c
     respx.delete(f"http://cart-service:8000/cart/{user_id}").mock(
         return_value=httpx.Response(204)
     )
-    webhook_resp = client.post(
+    webhook_resp = await client.post(
         f"/orders/{order_id}/payment-webhook",
         json={"status": "APPROVED", "transaction_id": str(uuid.uuid4())},
     )
@@ -135,8 +133,7 @@ def _create_confirmed_order(client: TestClient, user_id: str, product_id: str, c
     return response.json()
 
 
-@respx.mock
-def _create_pending_order(client: TestClient, user_id: str, product_id: str) -> dict:
+async def _create_pending_order(client: httpx.AsyncClient, user_id: str, product_id: str) -> dict:
     """Seed a PENDIENTE_DE_PAGO order without confirming payment."""
     cart_payload = _cart_response_with_category(user_id, product_id)
 
@@ -153,7 +150,7 @@ def _create_pending_order(client: TestClient, user_id: str, product_id: str) -> 
         return_value=httpx.Response(201, json=_PREFERENCE_RESPONSE)
     )
 
-    response = client.post(
+    response = await client.post(
         "/orders",
         json={"shipping_address": _VALID_ADDRESS},
         headers={"X-User-Id": user_id, "Idempotency-Key": str(uuid.uuid4())},
@@ -167,16 +164,16 @@ def _create_pending_order(client: TestClient, user_id: str, product_id: str) -> 
 class TestMetricsAdminAuth:
     """Metrics endpoints must require X-Is-Admin from the API Gateway."""
 
-    def test_non_admin_returns_403(self, client: TestClient) -> None:
-        resp = client.get(
+    async def test_non_admin_returns_403(self, client: httpx.AsyncClient) -> None:
+        resp = await client.get(
             "/orders/admin/metrics/orders/summary",
             params=_date_range_params(),
             headers={"X-Is-Admin": "false"},
         )
         assert resp.status_code == 403
 
-    def test_missing_admin_header_returns_422(self, client: TestClient) -> None:
-        resp = client.get(
+    async def test_missing_admin_header_returns_422(self, client: httpx.AsyncClient) -> None:
+        resp = await client.get(
             "/orders/admin/metrics/orders/summary",
             params=_date_range_params(),
         )
@@ -188,10 +185,10 @@ class TestMetricsAdminAuth:
 class TestDateRangeValidation:
     """Pydantic validators must reject invalid or oversized date ranges."""
 
-    def test_start_after_end_returns_422(self, client: TestClient) -> None:
+    async def test_start_after_end_returns_422(self, client: httpx.AsyncClient) -> None:
         end = datetime.now(timezone.utc)
         start = end + timedelta(days=1)
-        resp = _get_metrics(
+        resp = await _get_metrics(
             client,
             "/orders/admin/metrics/orders/summary",
             params={
@@ -207,10 +204,10 @@ class TestDateRangeValidation:
             for e in errors.get("detail", [])
         )
 
-    def test_range_exceeding_180_days_returns_422(self, client: TestClient) -> None:
+    async def test_range_exceeding_180_days_returns_422(self, client: httpx.AsyncClient) -> None:
         start = datetime.now(timezone.utc) - timedelta(days=200)
         end = datetime.now(timezone.utc)
-        resp = _get_metrics(
+        resp = await _get_metrics(
             client,
             "/orders/admin/metrics/orders/summary",
             params={
@@ -220,32 +217,32 @@ class TestDateRangeValidation:
         )
         assert resp.status_code == 422
 
-    def test_missing_start_date_returns_422(self, client: TestClient) -> None:
-        resp = _get_metrics(
+    async def test_missing_start_date_returns_422(self, client: httpx.AsyncClient) -> None:
+        resp = await _get_metrics(
             client,
             "/orders/admin/metrics/orders/summary",
             params={"end_date": datetime.now(timezone.utc).isoformat()},
         )
         assert resp.status_code == 422
 
-    def test_missing_end_date_returns_422(self, client: TestClient) -> None:
-        resp = _get_metrics(
+    async def test_missing_end_date_returns_422(self, client: httpx.AsyncClient) -> None:
+        resp = await _get_metrics(
             client,
             "/orders/admin/metrics/orders/summary",
             params={"start_date": datetime.now(timezone.utc).isoformat()},
         )
         assert resp.status_code == 422
 
-    def test_invalid_interval_returns_422(self, client: TestClient) -> None:
+    async def test_invalid_interval_returns_422(self, client: httpx.AsyncClient) -> None:
         params = _date_range_params()
         params["interval"] = "year"  # not in Literal["day", "week", "month"]
-        resp = _get_metrics(client, "/orders/admin/metrics/orders/summary", params=params)
+        resp = await _get_metrics(client, "/orders/admin/metrics/orders/summary", params=params)
         assert resp.status_code == 422
 
-    def test_valid_180_day_range_is_accepted(self, client: TestClient) -> None:
+    async def test_valid_180_day_range_is_accepted(self, client: httpx.AsyncClient) -> None:
         start = datetime.now(timezone.utc) - timedelta(days=179)
         end = datetime.now(timezone.utc)
-        resp = _get_metrics(
+        resp = await _get_metrics(
             client,
             "/orders/admin/metrics/orders/summary",
             params={"start_date": start.isoformat(), "end_date": end.isoformat()},
@@ -258,9 +255,9 @@ class TestDateRangeValidation:
 class TestOrdersSummaryEndpoint:
     """Tests for the /orders/admin/metrics/orders/summary endpoint."""
 
-    def test_returns_200_with_correct_schema_when_no_orders(self, client: TestClient) -> None:
+    async def test_returns_200_with_correct_schema_when_no_orders(self, client: httpx.AsyncClient) -> None:
         params = _date_range_params(days_back=1)
-        resp = _get_metrics(client, "/orders/admin/metrics/orders/summary", params=params)
+        resp = await _get_metrics(client, "/orders/admin/metrics/orders/summary", params=params)
 
         assert resp.status_code == 200
         body = resp.json()
@@ -271,60 +268,66 @@ class TestOrdersSummaryEndpoint:
         assert isinstance(body["summary"]["total_amount_in_period"], float)
         assert isinstance(body["timeseries"], list)
 
-    def test_counts_confirmed_order_in_summary(self, client: TestClient) -> None:
+    @respx.mock
+    async def test_counts_confirmed_order_in_summary(self, client: httpx.AsyncClient) -> None:
         user_id = str(uuid.uuid4())
         product_id = str(uuid.uuid4())
-        _create_confirmed_order(client, user_id, product_id)
+        await _create_confirmed_order(client, user_id, product_id)
 
         params = _date_range_params(days_back=1)
-        resp = _get_metrics(client, "/orders/admin/metrics/orders/summary", params=params)
+        resp = await _get_metrics(client, "/orders/admin/metrics/orders/summary", params=params)
 
         assert resp.status_code == 200
         body = resp.json()
         assert body["summary"]["total_orders_in_period"] >= 1
         assert body["summary"]["total_amount_in_period"] > 0
 
-    def test_pending_orders_do_not_count_toward_revenue(self, client: TestClient) -> None:
-        baseline_amount = _get_metrics(
+    @respx.mock
+    async def test_pending_orders_do_not_count_toward_revenue(self, client: httpx.AsyncClient) -> None:
+        r = await _get_metrics(
             client,
             "/orders/admin/metrics/orders/summary",
             params=_date_range_params(days_back=1),
-        ).json()["summary"]["total_amount_in_period"]
+        )
+        baseline_amount = r.json()["summary"]["total_amount_in_period"]
 
         user_id = str(uuid.uuid4())
         product_id = str(uuid.uuid4())
-        _create_pending_order(client, user_id, product_id)
+        await _create_pending_order(client, user_id, product_id)
 
-        after = _get_metrics(
+        r2 = await _get_metrics(
             client,
             "/orders/admin/metrics/orders/summary",
             params=_date_range_params(days_back=1),
-        ).json()
+        )
+        after = r2.json()
 
         assert after["distribution_by_status"].get("PENDIENTE_DE_PAGO", 0) >= 1
         assert after["summary"]["total_amount_in_period"] == baseline_amount
 
-    def test_distribution_by_status_contains_confirmada(self, client: TestClient) -> None:
+    @respx.mock
+    async def test_distribution_by_status_contains_confirmada(self, client: httpx.AsyncClient) -> None:
         user_id = str(uuid.uuid4())
         product_id = str(uuid.uuid4())
-        _create_confirmed_order(client, user_id, product_id)
+        await _create_confirmed_order(client, user_id, product_id)
 
         params = _date_range_params(days_back=1)
-        resp = _get_metrics(client, "/orders/admin/metrics/orders/summary", params=params)
+        resp = await _get_metrics(client, "/orders/admin/metrics/orders/summary", params=params)
 
         assert resp.status_code == 200
         distribution = resp.json()["distribution_by_status"]
         assert "CONFIRMADA" in distribution
         assert distribution["CONFIRMADA"] >= 1
 
-    def test_timeseries_has_entries_when_orders_exist(self, client: TestClient) -> None:
+    @respx.mock
+    async def test_timeseries_has_entries_when_orders_exist(self, client: httpx.AsyncClient) -> None:
         user_id = str(uuid.uuid4())
         product_id = str(uuid.uuid4())
-        _create_confirmed_order(client, user_id, product_id)
+        await _create_confirmed_order(client, user_id, product_id)
 
         params = _date_range_params(days_back=7)
         params["interval"] = "day"
-        resp = _get_metrics(client, "/orders/admin/metrics/orders/summary", params=params)
+        resp = await _get_metrics(client, "/orders/admin/metrics/orders/summary", params=params)
 
         assert resp.status_code == 200
         timeseries = resp.json()["timeseries"]
@@ -335,24 +338,24 @@ class TestOrdersSummaryEndpoint:
             assert "orders_count" in entry
             assert "amount" in entry
 
-    def test_timeseries_interval_week_returns_200(self, client: TestClient) -> None:
+    async def test_timeseries_interval_week_returns_200(self, client: httpx.AsyncClient) -> None:
         params = _date_range_params(days_back=30)
         params["interval"] = "week"
-        resp = _get_metrics(client, "/orders/admin/metrics/orders/summary", params=params)
+        resp = await _get_metrics(client, "/orders/admin/metrics/orders/summary", params=params)
         assert resp.status_code == 200
         assert isinstance(resp.json()["timeseries"], list)
 
-    def test_timeseries_interval_month_returns_200(self, client: TestClient) -> None:
+    async def test_timeseries_interval_month_returns_200(self, client: httpx.AsyncClient) -> None:
         params = _date_range_params(days_back=90)
         params["interval"] = "month"
-        resp = _get_metrics(client, "/orders/admin/metrics/orders/summary", params=params)
+        resp = await _get_metrics(client, "/orders/admin/metrics/orders/summary", params=params)
         assert resp.status_code == 200
         assert isinstance(resp.json()["timeseries"], list)
 
-    def test_request_id_propagated_in_response_header(self, client: TestClient) -> None:
+    async def test_request_id_propagated_in_response_header(self, client: httpx.AsyncClient) -> None:
         params = _date_range_params()
         request_id = str(uuid.uuid4())
-        resp = _get_metrics(
+        resp = await _get_metrics(
             client,
             "/orders/admin/metrics/orders/summary",
             params=params,
@@ -367,22 +370,23 @@ class TestOrdersSummaryEndpoint:
 class TestTopSellingProductsEndpoint:
     """Tests for the /orders/admin/metrics/products/top-selling endpoint."""
 
-    def test_returns_200_with_empty_list_when_no_orders(self, client: TestClient) -> None:
+    async def test_returns_200_with_empty_list_when_no_orders(self, client: httpx.AsyncClient) -> None:
         params = _date_range_params(days_back=1)
-        resp = _get_metrics(client, "/orders/admin/metrics/products/top-selling", params=params)
+        resp = await _get_metrics(client, "/orders/admin/metrics/products/top-selling", params=params)
 
         assert resp.status_code == 200
         body = resp.json()
         assert "items" in body
         assert isinstance(body["items"], list)
 
-    def test_product_appears_in_ranking_after_confirmed_order(self, client: TestClient) -> None:
+    @respx.mock
+    async def test_product_appears_in_ranking_after_confirmed_order(self, client: httpx.AsyncClient) -> None:
         user_id = str(uuid.uuid4())
         product_id = str(uuid.uuid4())
-        _create_confirmed_order(client, user_id, product_id)
+        await _create_confirmed_order(client, user_id, product_id)
 
         params = _date_range_params(days_back=1)
-        resp = _get_metrics(client, "/orders/admin/metrics/products/top-selling", params=params)
+        resp = await _get_metrics(client, "/orders/admin/metrics/products/top-selling", params=params)
 
         assert resp.status_code == 200
         items = resp.json()["items"]
@@ -395,30 +399,30 @@ class TestTopSellingProductsEndpoint:
         assert "total_quantity_sold" in item
         assert "total_revenue" in item
 
-    def test_top_selling_respects_limit_param(self, client: TestClient) -> None:
+    async def test_top_selling_respects_limit_param(self, client: httpx.AsyncClient) -> None:
         params = _date_range_params(days_back=30)
         params["limit"] = 2
-        resp = _get_metrics(client, "/orders/admin/metrics/products/top-selling", params=params)
+        resp = await _get_metrics(client, "/orders/admin/metrics/products/top-selling", params=params)
 
         assert resp.status_code == 200
         assert len(resp.json()["items"]) <= 2
 
-    def test_limit_exceeds_max_returns_422(self, client: TestClient) -> None:
+    async def test_limit_exceeds_max_returns_422(self, client: httpx.AsyncClient) -> None:
         params = _date_range_params()
         params["limit"] = 200  # max is 100 per schema
-        resp = _get_metrics(client, "/orders/admin/metrics/products/top-selling", params=params)
+        resp = await _get_metrics(client, "/orders/admin/metrics/products/top-selling", params=params)
         assert resp.status_code == 422
 
-    def test_limit_zero_returns_422(self, client: TestClient) -> None:
+    async def test_limit_zero_returns_422(self, client: httpx.AsyncClient) -> None:
         params = _date_range_params()
         params["limit"] = 0
-        resp = _get_metrics(client, "/orders/admin/metrics/products/top-selling", params=params)
+        resp = await _get_metrics(client, "/orders/admin/metrics/products/top-selling", params=params)
         assert resp.status_code == 422
 
-    def test_request_id_propagated_in_response_header(self, client: TestClient) -> None:
+    async def test_request_id_propagated_in_response_header(self, client: httpx.AsyncClient) -> None:
         params = _date_range_params()
         request_id = str(uuid.uuid4())
-        resp = _get_metrics(
+        resp = await _get_metrics(
             client,
             "/orders/admin/metrics/products/top-selling",
             params=params,
@@ -433,22 +437,23 @@ class TestTopSellingProductsEndpoint:
 class TestCategorySalesEndpoint:
     """Tests for the /orders/admin/metrics/categories/sales endpoint."""
 
-    def test_returns_200_with_empty_list_when_no_orders(self, client: TestClient) -> None:
+    async def test_returns_200_with_empty_list_when_no_orders(self, client: httpx.AsyncClient) -> None:
         params = _date_range_params(days_back=1)
-        resp = _get_metrics(client, "/orders/admin/metrics/categories/sales", params=params)
+        resp = await _get_metrics(client, "/orders/admin/metrics/categories/sales", params=params)
 
         assert resp.status_code == 200
         body = resp.json()
         assert "items" in body
         assert isinstance(body["items"], list)
 
-    def test_category_appears_after_confirmed_order(self, client: TestClient) -> None:
+    @respx.mock
+    async def test_category_appears_after_confirmed_order(self, client: httpx.AsyncClient) -> None:
         user_id = str(uuid.uuid4())
         product_id = str(uuid.uuid4())
-        _create_confirmed_order(client, user_id, product_id, category="Electrónica")
+        await _create_confirmed_order(client, user_id, product_id, category="Electrónica")
 
         params = _date_range_params(days_back=1)
-        resp = _get_metrics(client, "/orders/admin/metrics/categories/sales", params=params)
+        resp = await _get_metrics(client, "/orders/admin/metrics/categories/sales", params=params)
 
         assert resp.status_code == 200
         items = resp.json()["items"]
@@ -463,10 +468,10 @@ class TestCategorySalesEndpoint:
         assert item["orders_count"] >= 1
         assert item["total_amount"] > 0
 
-    def test_request_id_propagated_in_response_header(self, client: TestClient) -> None:
+    async def test_request_id_propagated_in_response_header(self, client: httpx.AsyncClient) -> None:
         params = _date_range_params()
         request_id = str(uuid.uuid4())
-        resp = _get_metrics(
+        resp = await _get_metrics(
             client,
             "/orders/admin/metrics/categories/sales",
             params=params,
@@ -481,34 +486,34 @@ class TestCategorySalesEndpoint:
 class TestExportEndpoint:
     """Tests for the /orders/admin/metrics/orders/export endpoint."""
 
-    def test_export_orders_returns_csv_content_type(self, client: TestClient) -> None:
+    async def test_export_orders_returns_csv_content_type(self, client: httpx.AsyncClient) -> None:
         params = _date_range_params()
         params["metric_type"] = "orders"
-        resp = _get_metrics(client, "/orders/admin/metrics/orders/export", params=params)
+        resp = await _get_metrics(client, "/orders/admin/metrics/orders/export", params=params)
 
         assert resp.status_code == 200
         assert "text/csv" in resp.headers.get("content-type", "")
 
-    def test_export_products_returns_csv_content_type(self, client: TestClient) -> None:
+    async def test_export_products_returns_csv_content_type(self, client: httpx.AsyncClient) -> None:
         params = _date_range_params()
         params["metric_type"] = "products"
-        resp = _get_metrics(client, "/orders/admin/metrics/orders/export", params=params)
+        resp = await _get_metrics(client, "/orders/admin/metrics/orders/export", params=params)
 
         assert resp.status_code == 200
         assert "text/csv" in resp.headers.get("content-type", "")
 
-    def test_export_categories_returns_csv_content_type(self, client: TestClient) -> None:
+    async def test_export_categories_returns_csv_content_type(self, client: httpx.AsyncClient) -> None:
         params = _date_range_params()
         params["metric_type"] = "categories"
-        resp = _get_metrics(client, "/orders/admin/metrics/orders/export", params=params)
+        resp = await _get_metrics(client, "/orders/admin/metrics/orders/export", params=params)
 
         assert resp.status_code == 200
         assert "text/csv" in resp.headers.get("content-type", "")
 
-    def test_export_orders_has_correct_csv_headers(self, client: TestClient) -> None:
+    async def test_export_orders_has_correct_csv_headers(self, client: httpx.AsyncClient) -> None:
         params = _date_range_params()
         params["metric_type"] = "orders"
-        resp = _get_metrics(client, "/orders/admin/metrics/orders/export", params=params)
+        resp = await _get_metrics(client, "/orders/admin/metrics/orders/export", params=params)
 
         assert resp.status_code == 200
         first_line = resp.text.split("\r\n")[0]
@@ -516,10 +521,10 @@ class TestExportEndpoint:
         assert "Orders Count" in first_line
         assert "Amount" in first_line
 
-    def test_export_products_has_correct_csv_headers(self, client: TestClient) -> None:
+    async def test_export_products_has_correct_csv_headers(self, client: httpx.AsyncClient) -> None:
         params = _date_range_params()
         params["metric_type"] = "products"
-        resp = _get_metrics(client, "/orders/admin/metrics/orders/export", params=params)
+        resp = await _get_metrics(client, "/orders/admin/metrics/orders/export", params=params)
 
         assert resp.status_code == 200
         first_line = resp.text.split("\r\n")[0]
@@ -528,10 +533,10 @@ class TestExportEndpoint:
         assert "Total Quantity Sold" in first_line
         assert "Total Revenue" in first_line
 
-    def test_export_categories_has_correct_csv_headers(self, client: TestClient) -> None:
+    async def test_export_categories_has_correct_csv_headers(self, client: httpx.AsyncClient) -> None:
         params = _date_range_params()
         params["metric_type"] = "categories"
-        resp = _get_metrics(client, "/orders/admin/metrics/orders/export", params=params)
+        resp = await _get_metrics(client, "/orders/admin/metrics/orders/export", params=params)
 
         assert resp.status_code == 200
         first_line = resp.text.split("\r\n")[0]
@@ -539,41 +544,42 @@ class TestExportEndpoint:
         assert "Orders Count" in first_line
         assert "Total Amount" in first_line
 
-    def test_export_invalid_metric_type_returns_422(self, client: TestClient) -> None:
+    async def test_export_invalid_metric_type_returns_422(self, client: httpx.AsyncClient) -> None:
         params = _date_range_params()
         params["metric_type"] = "invalid"
-        resp = _get_metrics(client, "/orders/admin/metrics/orders/export", params=params)
+        resp = await _get_metrics(client, "/orders/admin/metrics/orders/export", params=params)
         assert resp.status_code == 422
 
-    def test_export_includes_data_after_confirmed_order(self, client: TestClient) -> None:
+    @respx.mock
+    async def test_export_includes_data_after_confirmed_order(self, client: httpx.AsyncClient) -> None:
         user_id = str(uuid.uuid4())
         product_id = str(uuid.uuid4())
-        _create_confirmed_order(client, user_id, product_id)
+        await _create_confirmed_order(client, user_id, product_id)
 
         params = _date_range_params(days_back=1)
         params["metric_type"] = "orders"
-        resp = _get_metrics(client, "/orders/admin/metrics/orders/export", params=params)
+        resp = await _get_metrics(client, "/orders/admin/metrics/orders/export", params=params)
 
         assert resp.status_code == 200
         lines = [line for line in resp.text.split("\r\n") if line]
         # At least header + 1 data row
         assert len(lines) >= 2
 
-    def test_export_content_disposition_header_present(self, client: TestClient) -> None:
+    async def test_export_content_disposition_header_present(self, client: httpx.AsyncClient) -> None:
         params = _date_range_params()
         params["metric_type"] = "orders"
-        resp = _get_metrics(client, "/orders/admin/metrics/orders/export", params=params)
+        resp = await _get_metrics(client, "/orders/admin/metrics/orders/export", params=params)
 
         assert resp.status_code == 200
         disposition = resp.headers.get("content-disposition", "")
         assert "attachment" in disposition
         assert "metrics_orders.csv" in disposition
 
-    def test_export_date_range_validation_applies(self, client: TestClient) -> None:
+    async def test_export_date_range_validation_applies(self, client: httpx.AsyncClient) -> None:
         """CSV export must also enforce the 6-month limit."""
         start = datetime.now(timezone.utc) - timedelta(days=200)
         end = datetime.now(timezone.utc)
-        resp = _get_metrics(
+        resp = await _get_metrics(
             client,
             "/orders/admin/metrics/orders/export",
             params={
@@ -584,11 +590,11 @@ class TestExportEndpoint:
         )
         assert resp.status_code == 422
 
-    def test_request_id_propagated_in_response_header(self, client: TestClient) -> None:
+    async def test_request_id_propagated_in_response_header(self, client: httpx.AsyncClient) -> None:
         params = _date_range_params()
         params["metric_type"] = "orders"
         request_id = str(uuid.uuid4())
-        resp = _get_metrics(
+        resp = await _get_metrics(
             client,
             "/orders/admin/metrics/orders/export",
             params=params,

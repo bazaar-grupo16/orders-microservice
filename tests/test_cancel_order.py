@@ -7,9 +7,8 @@ import json
 
 import httpx
 import respx
-from fastapi.testclient import TestClient
-from sqlalchemy.orm import Session
 import pytest
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.models.order_status import OrderItemLogisticStatus, OrderStatus
 from src.repositories import order_repository
@@ -24,14 +23,14 @@ _VALID_ADDRESS = {
 }
 
 
-def _create_order(
-    db_session: Session,
+async def _create_order(
+    db_session: AsyncSession,
     *,
     buyer_id: uuid.UUID,
     seller_id: uuid.UUID,
     status: str = OrderStatus.CONFIRMADA,
 ):
-    return order_repository.create_order(
+    return await order_repository.create_order(
         db_session,
         user_id=buyer_id,
         idempotency_key=str(uuid.uuid4()),
@@ -50,14 +49,14 @@ def _create_order(
     )
 
 
-def _create_multi_item_order(
-    db_session: Session,
+async def _create_multi_item_order(
+    db_session: AsyncSession,
     *,
     buyer_id: uuid.UUID,
     seller_ids: list[uuid.UUID],
     status: str = OrderStatus.CONFIRMADA,
 ):
-    return order_repository.create_order(
+    return await order_repository.create_order(
         db_session,
         user_id=buyer_id,
         idempotency_key=str(uuid.uuid4()),
@@ -116,19 +115,19 @@ class TestCancelOrderByBuyer:
         ],
     )
     @respx.mock
-    def test_cancels_order_in_allowed_states(
+    async def test_cancels_order_in_allowed_states(
         self,
-        client: TestClient,
-        db_session: Session,
+        client: httpx.AsyncClient,
+        db_session: AsyncSession,
         order_status: str,
         expect_rollback: bool,
     ) -> None:
         buyer_id = uuid.uuid4()
         seller_id = uuid.uuid4()
-        order = _create_order(db_session, buyer_id=buyer_id, seller_id=seller_id, status=order_status)
+        order = await _create_order(db_session, buyer_id=buyer_id, seller_id=seller_id, status=order_status)
         rollback_route, _, refund_route = _mock_cancel_side_effects(order.id)
 
-        response = client.post(
+        response = await client.post(
             f"/orders/{order.id}/cancel",
             headers={"X-User-Id": str(buyer_id)},
         )
@@ -146,16 +145,16 @@ class TestCancelOrderByBuyer:
         assert not refund_route.called
 
     @respx.mock
-    def test_rejects_cancellation_from_other_user(
+    async def test_rejects_cancellation_from_other_user(
         self,
-        client: TestClient,
-        db_session: Session,
+        client: httpx.AsyncClient,
+        db_session: AsyncSession,
     ) -> None:
         buyer_id = uuid.uuid4()
         seller_id = uuid.uuid4()
-        order = _create_order(db_session, buyer_id=buyer_id, seller_id=seller_id)
+        order = await _create_order(db_session, buyer_id=buyer_id, seller_id=seller_id)
 
-        response = client.post(
+        response = await client.post(
             f"/orders/{order.id}/cancel",
             headers={"X-User-Id": str(uuid.uuid4())},
         )
@@ -164,15 +163,15 @@ class TestCancelOrderByBuyer:
         assert response.json()["title"] == "Access Denied"
 
     @respx.mock
-    def test_cancels_multi_item_order_and_rolls_back_all_items(
+    async def test_cancels_multi_item_order_and_rolls_back_all_items(
         self,
-        client: TestClient,
-        db_session: Session,
+        client: httpx.AsyncClient,
+        db_session: AsyncSession,
     ) -> None:
         buyer_id = uuid.uuid4()
         seller_id_1 = uuid.uuid4()
         seller_id_2 = uuid.uuid4()
-        order = _create_multi_item_order(
+        order = await _create_multi_item_order(
             db_session,
             buyer_id=buyer_id,
             seller_ids=[seller_id_1, seller_id_2],
@@ -181,7 +180,7 @@ class TestCancelOrderByBuyer:
         product_ids = [str(item.product_id) for item in order.items]
         rollback_route, _, refund_route = _mock_cancel_side_effects(order.id)
 
-        response = client.post(
+        response = await client.post(
             f"/orders/{order.id}/cancel",
             headers={"X-User-Id": str(buyer_id)},
         )
@@ -194,22 +193,23 @@ class TestCancelOrderByBuyer:
         assert not refund_route.called
         assert any(event["new_status"] == OrderStatus.CANCELADA for event in data["status_history"])
         assert {item["product_id"] for item in data["items"]} == set(product_ids)
+
     @respx.mock
-    def test_cancelling_pending_order_cancells_payment(
+    async def test_cancelling_pending_order_cancells_payment(
         self,
-        client: TestClient,
-        db_session: Session,
+        client: httpx.AsyncClient,
+        db_session: AsyncSession,
     ) -> None:
         buyer_id = uuid.uuid4()
         seller_id = uuid.uuid4()
-        order = _create_order(db_session, buyer_id=buyer_id, seller_id=seller_id, status=OrderStatus.PENDIENTE_DE_PAGO)
+        order = await _create_order(db_session, buyer_id=buyer_id, seller_id=seller_id, status=OrderStatus.PENDIENTE_DE_PAGO)
         rollback_route, _, refund_route = _mock_cancel_side_effects(order.id)
 
         cancel_payment_route = respx.post(
             f"http://payments-service:8000/payments/{order.id}/cancel"
         ).mock(return_value=httpx.Response(200))
 
-        response = client.post(
+        response = await client.post(
             f"/orders/{order.id}/cancel",
             headers={"X-User-Id": str(buyer_id)},
         )
@@ -232,18 +232,18 @@ class TestCancelOrderBySeller:
     """Seller can cancel a single confirmed item."""
 
     @respx.mock
-    def test_cancels_single_item_and_closes_order(
+    async def test_cancels_single_item_and_closes_order(
         self,
-        client: TestClient,
-        db_session: Session,
+        client: httpx.AsyncClient,
+        db_session: AsyncSession,
     ) -> None:
         buyer_id = uuid.uuid4()
         seller_id = uuid.uuid4()
-        order = _create_order(db_session, buyer_id=buyer_id, seller_id=seller_id, status=OrderStatus.CONFIRMADA)
+        order = await _create_order(db_session, buyer_id=buyer_id, seller_id=seller_id, status=OrderStatus.CONFIRMADA)
         item_id = order.items[0].id
         _, item_rollback_route, refund_route = _mock_cancel_side_effects(order.id)
 
-        response = client.post(
+        response = await client.post(
             f"/orders/sales/{order.id}/items/{item_id}/cancel",
             headers={"X-User-Id": str(seller_id)},
         )
@@ -261,18 +261,18 @@ class TestCancelOrderBySeller:
         )
 
     @respx.mock
-    def test_cancel_order_item_releases_stock_unconditionally(
+    async def test_cancel_order_item_releases_stock_unconditionally(
         self,
-        client: TestClient,
-        db_session: Session,
+        client: httpx.AsyncClient,
+        db_session: AsyncSession,
     ) -> None:
         buyer_id = uuid.uuid4()
         seller_id = uuid.uuid4()
-        order = _create_order(db_session, buyer_id=buyer_id, seller_id=seller_id, status=OrderStatus.CONFIRMADA)
+        order = await _create_order(db_session, buyer_id=buyer_id, seller_id=seller_id, status=OrderStatus.CONFIRMADA)
 
         # Manually mutate order status to a non-eligible one for the old check (e.g., PENDIENTE_DE_PAGO)
         order.status = OrderStatus.PENDIENTE_DE_PAGO.value
-        db_session.commit()
+        await db_session.commit()
 
         def release_check(request):
             data = json.loads(request.read())
@@ -287,7 +287,7 @@ class TestCancelOrderBySeller:
             f"http://payments-service:8000/payments/{order.id}/cancel"
         ).mock(return_value=httpx.Response(200))
 
-        response = client.post(
+        response = await client.post(
             f"/orders/{order.id}/cancel",
             headers={"X-User-Id": str(buyer_id)},
         )
@@ -297,14 +297,14 @@ class TestCancelOrderBySeller:
         assert cancel_payment_route.called
 
     @respx.mock
-    def test_cancels_one_item_and_keeps_order_open_when_others_remain(
+    async def test_cancels_one_item_and_keeps_order_open_when_others_remain(
         self,
-        client: TestClient,
-        db_session: Session,
+        client: httpx.AsyncClient,
+        db_session: AsyncSession,
     ) -> None:
         buyer_id = uuid.uuid4()
         seller_id = uuid.uuid4()
-        order = _create_multi_item_order(
+        order = await _create_multi_item_order(
             db_session,
             buyer_id=buyer_id,
             seller_ids=[seller_id, seller_id],
@@ -312,7 +312,7 @@ class TestCancelOrderBySeller:
         )
         item_id = order.items[0].id
 
-        confirm_response = client.patch(
+        confirm_response = await client.patch(
             f"/orders/{order.id}/status",
             json={"status": OrderStatus.CONFIRMADA},
             headers={"X-User-Id": str(seller_id)},
@@ -331,7 +331,7 @@ class TestCancelOrderBySeller:
             f"http://payments-service:8000/payments/{order.id}/refund"
         ).mock(return_value=httpx.Response(200))
 
-        response = client.post(
+        response = await client.post(
             f"/orders/sales/{order.id}/items/{item_id}/cancel",
             headers={"X-User-Id": str(seller_id)},
         )
@@ -346,14 +346,14 @@ class TestCancelOrderBySeller:
         assert any(event["new_status"] == OrderItemLogisticStatus.CANCELADO for event in data["status_history"])
 
     @respx.mock
-    def test_partial_cancellation_keeps_complete_history(
+    async def test_partial_cancellation_keeps_complete_history(
         self,
-        client: TestClient,
-        db_session: Session,
+        client: httpx.AsyncClient,
+        db_session: AsyncSession,
     ) -> None:
         buyer_id = uuid.uuid4()
         seller_id = uuid.uuid4()
-        order = _create_multi_item_order(
+        order = await _create_multi_item_order(
             db_session,
             buyer_id=buyer_id,
             seller_ids=[seller_id, seller_id],
@@ -361,7 +361,7 @@ class TestCancelOrderBySeller:
         )
         item_id = order.items[0].id
 
-        confirm_response = client.patch(
+        confirm_response = await client.patch(
             f"/orders/{order.id}/status",
             json={"status": OrderStatus.CONFIRMADA},
             headers={"X-User-Id": str(seller_id)},
@@ -370,7 +370,7 @@ class TestCancelOrderBySeller:
 
         _, item_rollback_route, refund_route = _mock_cancel_side_effects(order.id)
 
-        response = client.post(
+        response = await client.post(
             f"/orders/sales/{order.id}/items/{item_id}/cancel",
             headers={"X-User-Id": str(seller_id)},
         )
@@ -386,14 +386,14 @@ class TestCancelOrderBySeller:
         assert not refund_route.called
 
     @respx.mock
-    def test_rejects_pending_order_item_cancellation_before_confirmation(
+    async def test_rejects_pending_order_item_cancellation_before_confirmation(
         self,
-        client: TestClient,
-        db_session: Session,
+        client: httpx.AsyncClient,
+        db_session: AsyncSession,
     ) -> None:
         buyer_id = uuid.uuid4()
         seller_id = uuid.uuid4()
-        order = _create_order(
+        order = await _create_order(
             db_session,
             buyer_id=buyer_id,
             seller_id=seller_id,
@@ -401,7 +401,7 @@ class TestCancelOrderBySeller:
         )
         item_id = order.items[0].id
 
-        response = client.post(
+        response = await client.post(
             f"/orders/sales/{order.id}/items/{item_id}/cancel",
             headers={"X-User-Id": str(seller_id)},
         )
@@ -413,16 +413,16 @@ class TestCancelOrderBySeller:
 class TestCancelOrderGuards:
     """Shipped orders cannot be cancelled."""
 
-    def test_returns_409_when_order_is_already_sent(
+    async def test_returns_409_when_order_is_already_sent(
         self,
-        client: TestClient,
-        db_session: Session,
+        client: httpx.AsyncClient,
+        db_session: AsyncSession,
     ) -> None:
         buyer_id = uuid.uuid4()
         seller_id = uuid.uuid4()
-        order = _create_order(db_session, buyer_id=buyer_id, seller_id=seller_id, status=OrderStatus.ENVIADA)
+        order = await _create_order(db_session, buyer_id=buyer_id, seller_id=seller_id, status=OrderStatus.ENVIADA)
 
-        response = client.post(
+        response = await client.post(
             f"/orders/{order.id}/cancel",
             headers={"X-User-Id": str(buyer_id)},
         )
@@ -434,15 +434,15 @@ class TestCancelOrderWithRefund:
     """Cancelling a paid order triggers refund flow."""
 
     @respx.mock
-    def test_cancels_confirmed_order_and_requests_refund(
+    async def test_cancels_confirmed_order_and_requests_refund(
         self,
-        client: TestClient,
-        db_session: Session,
+        client: httpx.AsyncClient,
+        db_session: AsyncSession,
     ) -> None:
         pytest.skip("Ignored test: refunds not yet implemented")
         buyer_id = uuid.uuid4()
         seller_id = uuid.uuid4()
-        order = _create_order(db_session, buyer_id=buyer_id, seller_id=seller_id, status=OrderStatus.CONFIRMADA)
+        order = await _create_order(db_session, buyer_id=buyer_id, seller_id=seller_id, status=OrderStatus.CONFIRMADA)
         item_id = order.items[0].id
 
         # Mock stock rollback
@@ -466,7 +466,7 @@ class TestCancelOrderWithRefund:
             )
         )
 
-        response = client.post(
+        response = await client.post(
             f"/orders/{order.id}/cancel",
             headers={"X-User-Id": str(buyer_id)},
         )
@@ -488,7 +488,7 @@ class TestCancelOrderWithRefund:
         assert any(event["new_status"] == OrderStatus.CANCELADA for event in status_history)
         assert any(event["new_status"] == OrderStatus.REEMBOLSO_EN_PROCESO for event in status_history)
 
-        refund_webhook_response = client.post(
+        refund_webhook_response = await client.post(
             f"/orders/{order.id}/refund-webhook",
             json={
                 "order_item_id": str(item_id),
@@ -497,7 +497,7 @@ class TestCancelOrderWithRefund:
         )
         assert refund_webhook_response.status_code == 200
 
-        detail_response = client.get(
+        detail_response = await client.get(
             f"/orders/{order.id}",
             headers={"X-User-Id": str(buyer_id)},
         )
@@ -509,18 +509,18 @@ class TestCancelOrderWithRefund:
         assert any(event["new_status"] == OrderStatus.REEMBOLSO_PROCESADO for event in detail["status_history"])
 
     @respx.mock
-    def test_cancels_confirmed_order_with_multiple_items_and_refunds_each(
+    async def test_cancels_confirmed_order_with_multiple_items_and_refunds_each(
         self,
-        client: TestClient,
-        db_session: Session,
+        client: httpx.AsyncClient,
+        db_session: AsyncSession,
     ) -> None:
         pytest.skip("Ignored test: refunds not yet implemented")
         """Verify refund is called once per item in a multi-item order."""
         buyer_id = uuid.uuid4()
         seller_id_1 = uuid.uuid4()
         seller_id_2 = uuid.uuid4()
-        
-        order = order_repository.create_order(
+
+        order = await order_repository.create_order(
             db_session,
             user_id=buyer_id,
             idempotency_key=str(uuid.uuid4()),
@@ -567,7 +567,7 @@ class TestCancelOrderWithRefund:
             )
         )
 
-        response = client.post(
+        response = await client.post(
             f"/orders/{order.id}/cancel",
             headers={"X-User-Id": str(buyer_id)},
         )
@@ -577,7 +577,7 @@ class TestCancelOrderWithRefund:
 
         # Verify order is in refund progress while the external refund is pending
         assert data["status"] == OrderStatus.REEMBOLSO_EN_PROCESO
-        
+
         # Verify refund was called for each item
         assert refund_route.call_count == 2
         request_bodies = [json.loads(call.request.content) for call in refund_route.calls]
@@ -585,16 +585,16 @@ class TestCancelOrderWithRefund:
         assert request_bodies[1]["order_item_id"] == str(item_ids[1])
 
     @respx.mock
-    def test_cancellation_completes_even_if_refund_fails(
+    async def test_cancellation_completes_even_if_refund_fails(
         self,
-        client: TestClient,
-        db_session: Session,
+        client: httpx.AsyncClient,
+        db_session: AsyncSession,
     ) -> None:
         pytest.skip("Ignored test: refunds not yet implemented")
         """Best-effort: cancellation succeeds even if refund endpoint fails."""
         buyer_id = uuid.uuid4()
         seller_id = uuid.uuid4()
-        order = _create_order(db_session, buyer_id=buyer_id, seller_id=seller_id, status=OrderStatus.CONFIRMADA)
+        order = await _create_order(db_session, buyer_id=buyer_id, seller_id=seller_id, status=OrderStatus.CONFIRMADA)
 
         # Mock stock rollback
         respx.post(
@@ -606,20 +606,20 @@ class TestCancelOrderWithRefund:
             f"http://payments-service:8000/payments/{order.id}/refund"
         ).mock(return_value=httpx.Response(500, json={"detail": "Service unavailable"}))
 
-        response = client.post(
+        response = await client.post(
             f"/orders/{order.id}/cancel",
             headers={"X-User-Id": str(buyer_id)},
         )
 
         assert response.status_code == 200
         data = response.json()
-        
+
         # Order is cancelled but refund stays in progress (not fully processed)
         assert data["status"] == OrderStatus.REEMBOLSO_EN_PROCESO
-        
+
         # Verify transition to REEMBOLSO_EN_PROCESO is recorded
         status_history = data["status_history"]
         assert any(event["new_status"] == OrderStatus.REEMBOLSO_EN_PROCESO for event in status_history)
-        
+
         # REEMBOLSO_PROCESADO should NOT be present since refund failed
         assert not any(event["new_status"] == OrderStatus.REEMBOLSO_PROCESADO for event in status_history)

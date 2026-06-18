@@ -1,16 +1,17 @@
 """Repository layer for IdempotencyKey persistence."""
 
 import uuid
-from sqlalchemy.orm import Session
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 from src.models.idempotency_key import IdempotencyKey
 
 
-def get(db: Session, key: str) -> IdempotencyKey | None:
+async def get(db: AsyncSession, key: str) -> IdempotencyKey | None:
     """Look up an idempotency key row by its key.
 
     Parameters
     ----------
-    db: Session
+    db: AsyncSession
         The database session.
     key: str
         The idempotency key (UUIDv4 sent by the client).
@@ -20,10 +21,11 @@ def get(db: Session, key: str) -> IdempotencyKey | None:
     IdempotencyKey | None
         The idempotency key record if found, else None.
     """
-    return db.query(IdempotencyKey).filter(IdempotencyKey.key == key).first()
+    result = await db.execute(select(IdempotencyKey).filter(IdempotencyKey.key == key))
+    return result.scalars().first()
 
 
-def create(db: Session, key: str, order_id: uuid.UUID) -> IdempotencyKey:
+async def create(db: AsyncSession, key: str, order_id: uuid.UUID) -> IdempotencyKey:
     """Insert a new idempotency key record.
 
     Does not handle IntegrityError internally; lets it propagate to the caller
@@ -31,7 +33,7 @@ def create(db: Session, key: str, order_id: uuid.UUID) -> IdempotencyKey:
 
     Parameters
     ----------
-    db: Session
+    db: AsyncSession
         The database session.
     key: str
         The idempotency key (UUIDv4 sent by the client).
@@ -45,11 +47,12 @@ def create(db: Session, key: str, order_id: uuid.UUID) -> IdempotencyKey:
     """
     row = IdempotencyKey(key=key, order_id=order_id)
     db.add(row)
-    db.flush()  # Use flush to trigger database constraint evaluation and propagate IntegrityError immediately
+    await db.flush()  # Use flush to trigger database constraint evaluation and propagate IntegrityError immediately
     return row
 
 
-def rollback(db: Session) -> None:
+async def rollback(db: AsyncSession) -> None:
     """Roll back the current transaction."""
-    db.rollback()
+    await db.rollback()
+
 

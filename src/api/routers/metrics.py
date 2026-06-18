@@ -42,11 +42,11 @@ MetricsServiceDep = Annotated[MetricsService, Depends(get_metrics_service)]
     response_model=OrderSummaryMetricResponse,
     summary="Resumen financiero y de órdenes",
 )
-def get_orders_summary(
+async def get_orders_summary(
     params: Annotated[OrderSummaryQueryParams, Depends(get_order_summary_query_params)],
     service: MetricsServiceDep,
 ) -> OrderSummaryMetricResponse:
-    return service.get_orders_summary(params)
+    return await service.get_orders_summary(params)
 
 
 @router.get(
@@ -54,11 +54,11 @@ def get_orders_summary(
     response_model=TopSellingProductsResponse,
     summary="Ranking de productos más vendidos",
 )
-def get_top_selling_products(
+async def get_top_selling_products(
     params: Annotated[TopSellingQueryParams, Depends(get_top_selling_query_params)],
     service: MetricsServiceDep,
 ) -> TopSellingProductsResponse:
-    return service.get_top_selling_products(params)
+    return await service.get_top_selling_products(params)
 
 
 @router.get(
@@ -66,11 +66,11 @@ def get_top_selling_products(
     response_model=CategorySalesResponse,
     summary="Métricas de ventas por categoría",
 )
-def get_category_sales(
+async def get_category_sales(
     params: Annotated[DateRangeParams, Depends(get_date_range_params)],
     service: MetricsServiceDep,
 ) -> CategorySalesResponse:
-    return service.get_category_sales(params.start_date, params.end_date)
+    return await service.get_category_sales(params.start_date, params.end_date)
 
 
 @router.get(
@@ -90,11 +90,11 @@ def get_category_sales(
     ),
     response_class=Response,
 )
-def export_orders_metrics(
+async def export_orders_metrics(
     params: Annotated[ExportMetricsQueryParams, Depends(get_export_metrics_query_params)],
     service: MetricsServiceDep,
 ) -> Response:
-    csv_content = service.export_metrics_csv(params)
+    csv_content = await service.export_metrics_csv(params)
     return Response(
         content=csv_content,
         media_type="text/csv",

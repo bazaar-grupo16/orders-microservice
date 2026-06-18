@@ -1,7 +1,8 @@
 """Repository layer for OutboxEvent persistence and atomic state transitions."""
 
 import uuid
-from sqlalchemy.orm import Session
+from sqlalchemy import select, or_, and_
+from sqlalchemy.ext.asyncio import AsyncSession
 from src.core.utils import utc_now
 from src.models.outbox_event import OutboxEvent, OutboxStatus
 
@@ -14,7 +15,7 @@ class OutboxRepository:
     """
 
     @staticmethod
-    def insert(session: Session, event_type: str, payload: dict) -> OutboxEvent:
+    async def insert(session: AsyncSession, event_type: str, payload: dict) -> OutboxEvent:
         """Insert a pending outbox event inside the active session transaction."""
         event = OutboxEvent(
             event_type=event_type,
@@ -23,11 +24,11 @@ class OutboxRepository:
             attempts=0,
         )
         session.add(event)
-        session.flush()
+        await session.flush()
         return event
 
     @staticmethod
-    def claim_batch(session: Session, batch_size: int) -> list[OutboxEvent]:
+    async def claim_batch(session: AsyncSession, batch_size: int) -> list[OutboxEvent]:
         """Claim a batch of PENDING events atomically using FOR UPDATE SKIP LOCKED.
         
         Also recovers events stuck in PROCESSING state for more than 5 minutes 
@@ -36,58 +37,63 @@ class OutboxRepository:
         from datetime import timedelta
         stuck_cutoff = utc_now() - timedelta(minutes=5)
 
-        events = (
-            session.query(OutboxEvent)
-            .filter(
-                (OutboxEvent.status == OutboxStatus.PENDING.value) |
-                (
-                    (OutboxEvent.status == OutboxStatus.PROCESSING.value) &
-                    (OutboxEvent.locked_at <= stuck_cutoff)
+        stmt = (
+            select(OutboxEvent)
+            .where(
+                or_(
+                    OutboxEvent.status == OutboxStatus.PENDING.value,
+                    and_(
+                        OutboxEvent.status == OutboxStatus.PROCESSING.value,
+                        OutboxEvent.locked_at <= stuck_cutoff
+                    )
                 )
             )
             .order_by(OutboxEvent.created_at.asc())
             .limit(batch_size)
             .with_for_update(skip_locked=True)
-            .all()
         )
+        result = await session.execute(stmt)
+        events = list(result.scalars().all())
         now = utc_now()
         for event in events:
             event.status = OutboxStatus.PROCESSING.value
             event.locked_at = now
-        session.commit()
+        await session.commit()
         return events
 
     @staticmethod
-    def lock_event(session: Session, event_id: uuid.UUID) -> OutboxEvent | None:
+    async def lock_event(session: AsyncSession, event_id: uuid.UUID) -> OutboxEvent | None:
         """Lock a single outbox event row FOR UPDATE for isolation during HTTP calls."""
-        return (
-            session.query(OutboxEvent)
-            .filter(OutboxEvent.id == event_id)
+        stmt = (
+            select(OutboxEvent)
+            .where(OutboxEvent.id == event_id)
             .with_for_update()
-            .first()
         )
+        result = await session.execute(stmt)
+        return result.scalars().first()
 
     @staticmethod
-    def mark_done(session: Session, event_id: uuid.UUID) -> None:
+    async def mark_done(session: AsyncSession, event_id: uuid.UUID) -> None:
         """Mark an event as successfully completed and commit the transaction."""
-        event = session.get(OutboxEvent, event_id)
+        event = await session.get(OutboxEvent, event_id)
         if event:
             event.status = OutboxStatus.DONE.value
             event.processed_at = utc_now()
-            session.commit()
+            await session.commit()
 
     @staticmethod
-    def mark_failed(session: Session, event_id: uuid.UUID, max_attempts: int = 5) -> None:
+    async def mark_failed(session: AsyncSession, event_id: uuid.UUID, max_attempts: int = 5) -> None:
         """Record a failure attempt.
         
         If attempts < max_attempts, resets to PENDING to retry,
         otherwise marks status as FAILED. Commits the transaction.
         """
-        event = session.get(OutboxEvent, event_id)
+        event = await session.get(OutboxEvent, event_id)
         if event:
             event.attempts += 1
             if event.attempts < max_attempts:
                 event.status = OutboxStatus.PENDING.value
             else:
                 event.status = OutboxStatus.FAILED.value
-            session.commit()
+            await session.commit()
+

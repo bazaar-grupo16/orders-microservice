@@ -10,7 +10,6 @@ import uuid
 
 import httpx
 import respx
-from fastapi.testclient import TestClient
 
 
 # ── Helpers ───────────────────────────────────────────────────
@@ -60,7 +59,7 @@ _PREFERENCE_RESPONSE = {
 }
 
 
-def _create_order_via_api(client: TestClient, user_id: str) -> str:
+async def _create_order_via_api(client: httpx.AsyncClient, user_id: str) -> str:
     """Create an order (mocking Cart, Inventory and Payments) and return its ``order_id``."""
     cart_payload = _cart_response(user_id)
     respx.get(f"http://cart-service:8000/cart/{user_id}").mock(
@@ -82,7 +81,7 @@ def _create_order_via_api(client: TestClient, user_id: str) -> str:
     payments_route = respx.post("http://payments-service:8000/payments/preferences").mock(
         return_value=httpx.Response(201, json=_PREFERENCE_RESPONSE),
     )
-    response = client.post(
+    response = await client.post(
         "/orders",
         json={"shipping_address": _VALID_ADDRESS},
         headers={
@@ -104,11 +103,11 @@ class TestPaymentSuccess:
     """Webhook with ``APPROVED`` → CONFIRMADA + commit + clear cart."""
 
     @respx.mock
-    def test_updates_status_to_confirmada(self, client: TestClient) -> None:
+    async def test_updates_status_to_confirmada(self, client: httpx.AsyncClient) -> None:
         user_id = str(uuid.uuid4())
 
         # Mock for order creation.
-        order_id = _create_order_via_api(client, user_id)
+        order_id = await _create_order_via_api(client, user_id)
 
         # Mock for webhook side effects.
         respx.post("http://inventory-service:8000/internal/products/stock/commit").mock(
@@ -118,7 +117,7 @@ class TestPaymentSuccess:
             return_value=httpx.Response(204),
         )
 
-        response = client.post(
+        response = await client.post(
             f"/orders/{order_id}/payment-webhook",
             json={"status": "APPROVED", "transaction_id": "tx-123"},
         )
@@ -126,7 +125,7 @@ class TestPaymentSuccess:
         assert response.status_code == 200
         assert response.json()["status"] == "CONFIRMADA"
 
-        detail_response = client.get(
+        detail_response = await client.get(
             f"/orders/{order_id}",
             headers={"X-User-Id": user_id},
         )
@@ -139,10 +138,10 @@ class TestPaymentSuccess:
         )
 
     @respx.mock
-    def test_calls_inventory_commit(self, client: TestClient) -> None:
+    async def test_calls_inventory_commit(self, client: httpx.AsyncClient) -> None:
         user_id = str(uuid.uuid4())
 
-        order_id = _create_order_via_api(client, user_id)
+        order_id = await _create_order_via_api(client, user_id)
 
         commit_route = respx.post("http://inventory-service:8000/internal/products/stock/commit").mock(
             return_value=httpx.Response(200, json={"data": {"order_id": order_id, "committed_products": []}}),
@@ -151,7 +150,7 @@ class TestPaymentSuccess:
             return_value=httpx.Response(204),
         )
 
-        response = client.post(
+        response = await client.post(
             f"/orders/{order_id}/payment-webhook",
             json={"status": "APPROVED", "transaction_id": "tx-456"},
         )
@@ -162,10 +161,10 @@ class TestPaymentSuccess:
         assert req_payload == {"order_id": order_id}
 
     @respx.mock
-    def test_calls_cart_delete(self, client: TestClient) -> None:
+    async def test_calls_cart_delete(self, client: httpx.AsyncClient) -> None:
         user_id = str(uuid.uuid4())
 
-        order_id = _create_order_via_api(client, user_id)
+        order_id = await _create_order_via_api(client, user_id)
 
         respx.post("http://inventory-service:8000/internal/products/stock/commit").mock(
             return_value=httpx.Response(200, json={"data": {"order_id": order_id, "committed_products": []}}),
@@ -174,7 +173,7 @@ class TestPaymentSuccess:
             return_value=httpx.Response(204),
         )
 
-        client.post(
+        await client.post(
             f"/orders/{order_id}/payment-webhook",
             json={"status": "APPROVED", "transaction_id": "tx-789"},
         )
@@ -182,10 +181,10 @@ class TestPaymentSuccess:
         assert delete_route.called
 
     @respx.mock
-    def test_commit_returns_404_non_fatal(self, client: TestClient) -> None:
+    async def test_commit_returns_404_non_fatal(self, client: httpx.AsyncClient) -> None:
         user_id = str(uuid.uuid4())
 
-        order_id = _create_order_via_api(client, user_id)
+        order_id = await _create_order_via_api(client, user_id)
 
         commit_route = respx.post("http://inventory-service:8000/internal/products/stock/commit").mock(
             return_value=httpx.Response(404, json={"detail": "Reservation not found"}),
@@ -194,7 +193,7 @@ class TestPaymentSuccess:
             return_value=httpx.Response(204),
         )
 
-        response = client.post(
+        response = await client.post(
             f"/orders/{order_id}/payment-webhook",
             json={"status": "APPROVED", "transaction_id": "tx-nonfatal"},
         )
@@ -208,16 +207,16 @@ class TestPaymentFailed:
     """Webhook with ``REJECTED`` → PAGO_RECHAZADO + rollback stock."""
 
     @respx.mock
-    def test_updates_status_to_pago_rechazado(self, client: TestClient) -> None:
+    async def test_updates_status_to_pago_rechazado(self, client: httpx.AsyncClient) -> None:
         user_id = str(uuid.uuid4())
 
-        order_id = _create_order_via_api(client, user_id)
+        order_id = await _create_order_via_api(client, user_id)
 
         respx.post("http://inventory-service:8000/internal/products/stock/release").mock(
             return_value=httpx.Response(200),
         )
 
-        response = client.post(
+        response = await client.post(
             f"/orders/{order_id}/payment-webhook",
             json={"status": "REJECTED", "transaction_id": "tx-fail-1"},
         )
@@ -226,16 +225,16 @@ class TestPaymentFailed:
         assert response.json()["status"] == "PAGO_RECHAZADO"
 
     @respx.mock
-    def test_calls_inventory_rollback(self, client: TestClient) -> None:
+    async def test_calls_inventory_rollback(self, client: httpx.AsyncClient) -> None:
         user_id = str(uuid.uuid4())
 
-        order_id = _create_order_via_api(client, user_id)
+        order_id = await _create_order_via_api(client, user_id)
 
         rollback_route = respx.post("http://inventory-service:8000/internal/products/stock/release").mock(
             return_value=httpx.Response(200),
         )
 
-        client.post(
+        await client.post(
             f"/orders/{order_id}/payment-webhook",
             json={"status": "REJECTED", "transaction_id": "tx-fail-2"},
         )
@@ -248,21 +247,21 @@ class TestPaymentFailed:
 class TestWebhookErrors:
     """Error handling in the payment webhook."""
 
-    def test_nonexistent_order_returns_404(self, client: TestClient) -> None:
+    async def test_nonexistent_order_returns_404(self, client: httpx.AsyncClient) -> None:
         fake_id = str(uuid.uuid4())
-        response = client.post(
+        response = await client.post(
             f"/orders/{fake_id}/payment-webhook",
             json={"status": "APPROVED", "transaction_id": "tx-ghost"},
         )
         assert response.status_code == 404
 
     @respx.mock
-    def test_duplicate_webhook_returns_409(self, client: TestClient) -> None:
+    async def test_duplicate_webhook_returns_409(self, client: httpx.AsyncClient) -> None:
         """Calling the webhook twice on the same order should fail the
         second time because the order is no longer PENDIENTE_DE_PAGO."""
         user_id = str(uuid.uuid4())
 
-        order_id = _create_order_via_api(client, user_id)
+        order_id = await _create_order_via_api(client, user_id)
 
         respx.post("http://inventory-service:8000/internal/products/stock/commit").mock(
             return_value=httpx.Response(200, json={"data": {"order_id": order_id, "committed_products": []}}),
@@ -272,22 +271,22 @@ class TestWebhookErrors:
         )
 
         # First call — should succeed.
-        first = client.post(
+        first = await client.post(
             f"/orders/{order_id}/payment-webhook",
             json={"status": "APPROVED", "transaction_id": "tx-dup-1"},
         )
         assert first.status_code == 200
 
         # Second call — state machine rejects.
-        second = client.post(
+        second = await client.post(
             f"/orders/{order_id}/payment-webhook",
             json={"status": "APPROVED", "transaction_id": "tx-dup-2"},
         )
         assert second.status_code == 409
 
-    def test_invalid_status_returns_422(self, client: TestClient) -> None:
+    async def test_invalid_status_returns_422(self, client: httpx.AsyncClient) -> None:
         fake_id = str(uuid.uuid4())
-        response = client.post(
+        response = await client.post(
             f"/orders/{fake_id}/payment-webhook",
             json={"status": "INVALID", "transaction_id": "tx-bad"},
         )

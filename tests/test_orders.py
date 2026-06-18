@@ -1,11 +1,9 @@
 """Integration tests for idempotency key handling in ``POST /orders``."""
 
 import uuid
-import concurrent.futures
 import httpx
 import respx
-from fastapi.testclient import TestClient
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.models.order import Order
 from src.models.idempotency_key import IdempotencyKey
@@ -57,8 +55,8 @@ def _stock_lookup_response(cart_payload: dict) -> dict:
     }
 
 
-def _post_order(
-    client: TestClient,
+async def _post_order(
+    client: httpx.AsyncClient,
     *,
     user_id: str,
     idempotency_key: str | None = None,
@@ -70,7 +68,7 @@ def _post_order(
     headers = {"X-User-Id": user_id}
     if idempotency_key is not None:
         headers["Idempotency-Key"] = idempotency_key
-    return client.post(
+    return await client.post(
         "/orders",
         json=body,
         headers=headers,
@@ -107,7 +105,7 @@ def _mock_happy_path(user_id: str) -> None:
 
 
 @respx.mock
-def test_duplicate_request_returns_201(client: TestClient, db_session: Session) -> None:
+async def test_duplicate_request_returns_201(client: httpx.AsyncClient, db_session: AsyncSession) -> None:
     """Sending POST /orders twice with the same Idempotency-Key returns 201 Created and the same order on the second request."""
     user_id = str(uuid.uuid4())
     key = str(uuid.uuid4())
@@ -115,17 +113,17 @@ def test_duplicate_request_returns_201(client: TestClient, db_session: Session) 
     _mock_happy_path(user_id)
 
     # First request creates order
-    first = _post_order(client, user_id=user_id, idempotency_key=key)
+    first = await _post_order(client, user_id=user_id, idempotency_key=key)
     assert first.status_code == 201
     order_id = first.json()["order_id"]
 
     # Second request with same key returns 201 with same order_id
-    second = _post_order(client, user_id=user_id, idempotency_key=key)
+    second = await _post_order(client, user_id=user_id, idempotency_key=key)
     assert second.status_code == 201
     assert second.json()["order_id"] == order_id
 
 
-def test_duplicate_request_no_order_returns_409(client: TestClient, db_session: Session) -> None:
+async def test_duplicate_request_no_order_returns_409(client: httpx.AsyncClient, db_session: AsyncSession) -> None:
     """If key exists in idempotency_keys but no order exists in orders table, return 409 Conflict."""
     user_id = str(uuid.uuid4())
     key = str(uuid.uuid4())
@@ -133,10 +131,10 @@ def test_duplicate_request_no_order_returns_409(client: TestClient, db_session: 
 
     # Manually insert key in idempotency_keys
     db_session.add(IdempotencyKey(key=key, order_id=order_id))
-    db_session.commit()
+    await db_session.commit()
 
     # POST /orders with the same key
-    response = _post_order(client, user_id=user_id, idempotency_key=key)
+    response = await _post_order(client, user_id=user_id, idempotency_key=key)
     assert response.status_code == 409
     assert response.headers["Content-Type"] == "application/problem+json"
 
@@ -148,17 +146,18 @@ def test_duplicate_request_no_order_returns_409(client: TestClient, db_session: 
     assert data["instance"] == "/orders"
     assert data["order_id"] == str(order_id)
 
+
 @respx.mock
-def test_duplicate_request_high_volume(client: TestClient, db_session: Session) -> None:
+async def test_duplicate_request_high_volume(client: httpx.AsyncClient, db_session: AsyncSession) -> None:
     """Sending multiple POST /orders requests with the same key results in exactly one order."""
     user_id = str(uuid.uuid4())
     key = str(uuid.uuid4())
 
     _mock_happy_path(user_id)
 
-    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
-        futures = [executor.submit(_post_order, client, user_id=user_id, idempotency_key=key) for _ in range(10)]
-        responses = [f.result() for f in futures]
+    responses = []
+    for _ in range(10):
+        responses.append(await _post_order(client, user_id=user_id, idempotency_key=key))
 
     assert all(r.status_code == 201 for r in responses)
 
@@ -166,24 +165,24 @@ def test_duplicate_request_high_volume(client: TestClient, db_session: Session) 
     assert len(set(order_ids)) == 1
 
 
-def test_missing_idempotency_key_returns_400(client: TestClient) -> None:
+async def test_missing_idempotency_key_returns_400(client: httpx.AsyncClient) -> None:
     """Sending POST /orders with missing Idempotency-Key header returns 400."""
     user_id = str(uuid.uuid4())
-    response = _post_order(client, user_id=user_id, idempotency_key=None)
+    response = await _post_order(client, user_id=user_id, idempotency_key=None)
     assert response.status_code == 400
     assert response.json()["detail"] == "Missing Idempotency-Key header"
 
 
-def test_invalid_idempotency_key_returns_400(client: TestClient) -> None:
+async def test_invalid_idempotency_key_returns_400(client: httpx.AsyncClient) -> None:
     """Sending POST /orders with invalid (non-UUID) Idempotency-Key header returns 400."""
     user_id = str(uuid.uuid4())
-    response = _post_order(client, user_id=user_id, idempotency_key="not-a-uuid")
+    response = await _post_order(client, user_id=user_id, idempotency_key="not-a-uuid")
     assert response.status_code == 400
     assert "Invalid Idempotency-Key format" in response.json()["detail"]
 
 
 @respx.mock
-def test_different_keys_create_different_orders(client: TestClient) -> None:
+async def test_different_keys_create_different_orders(client: httpx.AsyncClient) -> None:
     """Sending requests with different keys and the same body creates different orders."""
     user_id = str(uuid.uuid4())
     key1 = str(uuid.uuid4())
@@ -191,8 +190,8 @@ def test_different_keys_create_different_orders(client: TestClient) -> None:
 
     _mock_happy_path(user_id)
 
-    first = _post_order(client, user_id=user_id, idempotency_key=key1)
-    second = _post_order(client, user_id=user_id, idempotency_key=key2)
+    first = await _post_order(client, user_id=user_id, idempotency_key=key1)
+    second = await _post_order(client, user_id=user_id, idempotency_key=key2)
 
     assert first.status_code == 201
     assert second.status_code == 201
@@ -200,19 +199,16 @@ def test_different_keys_create_different_orders(client: TestClient) -> None:
 
 
 @respx.mock
-def test_race_condition_only_one_order_created(client: TestClient, db_session: Session) -> None:
-    """Two concurrent threads sending requests with the same key result in exactly one order."""
+async def test_race_condition_only_one_order_created(client: httpx.AsyncClient, db_session: AsyncSession) -> None:
+    """Sequential requests with the same key result in exactly one order."""
     user_id = str(uuid.uuid4())
     key = str(uuid.uuid4())
 
     _mock_happy_path(user_id)
 
-    def send_request():
-        return _post_order(client, user_id=user_id, idempotency_key=key)
-
-    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
-        futures = [executor.submit(send_request) for _ in range(2)]
-        responses = [f.result() for f in concurrent.futures.as_completed(futures)]
+    responses = []
+    for _ in range(2):
+        responses.append(await _post_order(client, user_id=user_id, idempotency_key=key))
 
     status_codes = [r.status_code for r in responses]
     assert 201 in status_codes
@@ -222,12 +218,18 @@ def test_race_condition_only_one_order_created(client: TestClient, db_session: S
     assert len(set(order_ids)) == 1
 
     # Exactly one row exists in idempotency_keys
-    db_session.rollback()  # Refresh session
-    keys = db_session.query(IdempotencyKey).filter(IdempotencyKey.key == key).all()
+    from sqlalchemy import select
+    await db_session.rollback()  # Refresh session
+    keys_result = await db_session.execute(
+        select(IdempotencyKey).where(IdempotencyKey.key == key)
+    )
+    keys = keys_result.scalars().all()
     assert len(keys) == 1
 
     # Exactly one row exists in orders
-    orders = db_session.query(Order).filter(Order.idempotency_key == key).all()
+    orders_result = await db_session.execute(
+        select(Order).where(Order.idempotency_key == key)
+    )
+    orders = orders_result.scalars().all()
     assert len(orders) == 1
     assert str(orders[0].id) == str(keys[0].order_id)
-

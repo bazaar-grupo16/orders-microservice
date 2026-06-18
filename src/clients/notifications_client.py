@@ -19,7 +19,7 @@ def _base_url() -> str:
     return get_settings().NOTIFICATIONS_SERVICE_URL.rstrip("/")
 
 
-def notify_order_status_changed(
+async def notify_order_status_changed(
     *,
     order_id: UUID,
     order_items: list[OrderItem],
@@ -47,13 +47,14 @@ def notify_order_status_changed(
         payload["tracking_code"] = tracking_code
 
     try:
-        response = httpx.post(
-            f"{base_url}/notifications/order-status-changed",
-            json=payload,
-            headers=build_observability_headers(),
-            timeout=_TIMEOUT,
-        )
-        response.raise_for_status()
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                f"{base_url}/notifications/order-status-changed",
+                json=payload,
+                headers=build_observability_headers(),
+                timeout=_TIMEOUT,
+            )
+            response.raise_for_status()
     except Exception as exc:
         logger.warning(
             "Notifications service failed for order status change: "
@@ -63,7 +64,8 @@ def notify_order_status_changed(
             exc,
         )
 
-def notify_order_item_status_changed(
+
+async def notify_order_item_status_changed(
     item: OrderItem,
     new_status: str,
     buyer_id: UUID | None = None,
@@ -84,13 +86,14 @@ def notify_order_item_status_changed(
         payload["tracking_code"] = tracking_code
     
     try:
-        response = httpx.post(
-            f"{base_url}/notifications/order-item-status-changed",
-            json=payload,
-            headers=build_observability_headers(),
-            timeout=_TIMEOUT,
-        )
-        response.raise_for_status()
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                f"{base_url}/notifications/order-item-status-changed",
+                json=payload,
+                headers=build_observability_headers(),
+                timeout=_TIMEOUT,
+            )
+            response.raise_for_status()
     except Exception as exc:
         logger.warning(
             "Notifications service failed for order item status change: "
@@ -98,4 +101,4 @@ def notify_order_item_status_changed(
             item.order_id,
             new_status,
             exc,
-        )
+        )

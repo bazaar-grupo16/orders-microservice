@@ -18,7 +18,7 @@ class IdempotencyKey(Base):
 
     key = Column(String, primary_key=True)
     order_id = Column(UUID, nullable=False, unique=True)
-    created_at = Column(DateTime, nullable=False, default=utc_now)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=utc_now)
 
 
 @event.listens_for(Order, "before_insert")

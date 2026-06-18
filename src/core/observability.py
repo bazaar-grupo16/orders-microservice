@@ -113,7 +113,7 @@ class ObservabilityJSONFormatter(jsonlogger.JsonFormatter):
     def __init__(self) -> None:
         super().__init__(
             fmt="%(asctime)s %(levelname)s %(name)s %(message)s",
-            datefmt="%Y-%m-%dT%H:%M:%S.%LZ",
+            datefmt="%Y-%m-%dT%H:%M:%SZ",
             rename_fields={
                 "asctime": "time",
                 "levelname": "level",
