@@ -87,10 +87,3 @@ spec:
                 name: orders-service
                 port:
                   number: 80
-          - path: /orders/[^/]+/status/?$
-            pathType: ImplementationSpecific
-            backend:
-              service:
-                name: orders-service
-                port:
-                  number: 80
