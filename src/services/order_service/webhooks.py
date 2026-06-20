@@ -4,11 +4,13 @@ import logging
 import uuid
 
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 
 from src.exceptions import OrderNotFoundError
 from src.models.order import Order
 from src.models.order_status import OrderItemLogisticStatus, OrderStatus
 from src.models.state_machine import validate_item_transition, validate_transition
+from src.models.outbox_event import OutboxEvent
 from src.repositories import order_repository
 from src.repositories.outbox_repository import OutboxRepository
 from src.schemas.webhook import PaymentStatus, RefundStatus, payment_status_to_order_status
@@ -28,7 +30,11 @@ async def resolve_payment(
 	transaction_id: str,
 ) -> Order:
 	"""Process the payment webhook — step 6 of the Saga."""
-	order = await order_repository.get_by_id(db, order_id)
+
+	# 1. Adquirir bloqueo de fila para serializar peticiones concurrentes sobre la misma orden
+	stmt = select(Order).where(Order.id == order_id).with_for_update()
+	result = await db.execute(stmt)
+	order = result.scalars().first()
 	if order is None:
 		raise OrderNotFoundError(str(order_id))
 
@@ -40,7 +46,24 @@ async def resolve_payment(
 		)
 		return order
 
-	validate_transition(OrderStatus(order.status), target_status)
+	# 2. Si la orden ya no está PENDIENTE_DE_PAGO, ya fue procesada por otro webhook
+	current_status = OrderStatus(order.status)
+	if current_status != OrderStatus.PENDIENTE_DE_PAGO:
+		return order
+
+	# 3. Evitar duplicar eventos en el Outbox (control de idempotencia concurrente)
+	outbox_stmt = select(OutboxEvent).where(
+		OutboxEvent.payload["order_id"].as_string() == str(order_id)
+	).where(
+		OutboxEvent.event_type.in_(["PAYMENT_SUCCESS", "PAYMENT_FAILED"])
+	)
+	outbox_result = await db.execute(outbox_stmt)
+	existing_event = outbox_result.scalars().first()
+	if existing_event is not None:
+		return order
+
+	# 4. Validar la transición e insertar el evento
+	validate_transition(current_status, target_status)
 
 	if payment_status == PaymentStatus.APPROVED:
 		await OutboxRepository.insert(db, "PAYMENT_SUCCESS", {
@@ -62,7 +85,6 @@ async def resolve_payment(
 		logger.warning("Inline outbox processing failed for order %s: %s", order.id, exc)
 
 	return await order_repository.get_by_id(db, order_id)
-
 
 async def resolve_refund(
 	db: AsyncSession,
@@ -109,4 +131,4 @@ async def resolve_refund(
 			order,
 			OrderStatus.REEMBOLSO_PROCESADO,
 			origin="webhook",
-		)
+		)

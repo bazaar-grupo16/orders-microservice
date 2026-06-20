@@ -1,5 +1,6 @@
 """Order creation workflow and stock helper utilities."""
 
+from src.exceptions import DuplicateRequest
 import logging
 from typing import Any
 import uuid
@@ -8,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import IntegrityError
 
 from src.clients import cart_client, inventory_client, payments_client
-from src.exceptions import InsufficientStockError, PaymentsServiceError, DuplicateRequest
+from src.exceptions import InsufficientStockError, PaymentsServiceError
 from src.models.order import Order
 from src.models.order_status import OrderStatus
 from src.repositories import order_repository, idempotency_repository
@@ -25,57 +26,44 @@ async def create_order(
     shipping_address: dict,
 ) -> Order:
     """Execute the Saga to create a new order and obtain a payment link."""
+    existing_key = await idempotency_repository.get(db, idempotency_key)
+    if existing_key is not None:
+        existing_order = await order_repository.get_by_idempotency_key(db, idempotency_key)
+        if existing_order:
+            if existing_order.init_point is None:
+                existing_order = await _create_order_payment_preference(db, existing_order, idempotency_key)
+            return existing_order
+        else:
+            raise DuplicateRequest(idempotency_key, existing_key.order_id)
+
+
+    cart_items = await cart_client.get_cart(user_id)
     order_id = uuid.uuid4()
+    await _reserve_stock(order_id, cart_items)
 
     try:
-        order_id = await _resolve_idempotency(db, idempotency_key, order_id)
-    except DuplicateRequest as e:
+        await idempotency_repository.create(db, idempotency_key, order_id)
+        order = await _create_order_in_db(db, order_id, user_id, idempotency_key, shipping_address, cart_items)
+        order = await _create_order_payment_preference(db, order, idempotency_key)
+    except IntegrityError as e:
+        await idempotency_repository.rollback(db)
+        await inventory_client.release_stock(order_id)
         existing = await order_repository.get_by_idempotency_key(db, idempotency_key)
         if existing is None:
             raise e
+        if existing.init_point is None:
+            existing = await _create_order_payment_preference(db, existing, idempotency_key)
         logger.info(
             "Idempotent hit: key=%s → order=%s init_point_stored=%s",
             idempotency_key, existing.id, bool(existing.init_point),
         )
         return existing
 
-    cart_items = await cart_client.get_cart(user_id)
-    
-    await _reserve_stock(order_id, cart_items)
-
-    order = await _create_order_in_db(db, order_id, user_id, idempotency_key, shipping_address, cart_items)
-
-    order = await _create_order_payment_preference(db, order, idempotency_key)
-
     logger.info(
         "Order created: id=%s status=%s preference_id=%s",
         order.id, order.status, order.preference_id,
     )
     return order
-
-async def _resolve_idempotency(db: AsyncSession, idempotency_key: str, order_id: uuid.UUID) -> uuid.UUID:
-    existing = await idempotency_repository.get(db, idempotency_key)
-
-    if existing is not None:
-        logger.info(
-            "Idempotent hit on get: key=%s -> order_id=%s",
-            idempotency_key,
-            existing.order_id,
-        )
-        raise DuplicateRequest(idempotency_key, existing.order_id)
-
-    try:
-        await idempotency_repository.create(db, idempotency_key, order_id)
-    except IntegrityError:
-        logger.warning("Race condition detected for idempotency key=%s", idempotency_key)
-        await idempotency_repository.rollback(db)
-        existing = await idempotency_repository.get(db, idempotency_key)
-        if existing is not None:
-            raise DuplicateRequest(idempotency_key, existing.order_id)
-        raise
-
-    return order_id
-
 
 
 async def _reserve_stock(order_id: uuid.UUID, cart_items: list[dict[str, Any]]) -> None:

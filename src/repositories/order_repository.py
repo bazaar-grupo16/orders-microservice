@@ -217,6 +217,8 @@ async def update_status(
     previous_status = order.status.value if hasattr(order.status, "value") else order.status
     new_status_value = new_status.value if hasattr(new_status, "value") else new_status
     order.status = new_status_value
+    if tracking_code is not None:
+        order.tracking_code = tracking_code
     await create_status_change(
         db,
         order_id=order.id,
@@ -226,14 +228,6 @@ async def update_status(
         origin=origin,
         tracking_code=tracking_code,
     )
-    await db.commit()
-    await db.refresh(order)
-    return order
-
-
-async def update_tracking_code(db: AsyncSession, order: Order, tracking_code: str) -> Order:
-    """Set the tracking code on an order."""
-    order.tracking_code = tracking_code
     await db.commit()
     await db.refresh(order)
     return order

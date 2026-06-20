@@ -5,6 +5,7 @@ Each test first creates an order via the Saga (mocking Cart + Inventory),
 then calls the webhook with APPROVED or REJECTED to verify the resolution.
 """
 
+import asyncio
 import json
 import uuid
 
@@ -255,35 +256,6 @@ class TestWebhookErrors:
         )
         assert response.status_code == 404
 
-    @respx.mock
-    async def test_duplicate_webhook_returns_409(self, client: httpx.AsyncClient) -> None:
-        """Calling the webhook twice on the same order should fail the
-        second time because the order is no longer PENDIENTE_DE_PAGO."""
-        user_id = str(uuid.uuid4())
-
-        order_id = await _create_order_via_api(client, user_id)
-
-        respx.post("http://inventory-service:8000/internal/products/stock/commit").mock(
-            return_value=httpx.Response(200, json={"data": {"order_id": order_id, "committed_products": []}}),
-        )
-        respx.delete(f"http://cart-service:8000/cart/{user_id}").mock(
-            return_value=httpx.Response(204),
-        )
-
-        # First call — should succeed.
-        first = await client.post(
-            f"/orders/{order_id}/payment-webhook",
-            json={"status": "APPROVED", "transaction_id": "tx-dup-1"},
-        )
-        assert first.status_code == 200
-
-        # Second call — state machine rejects.
-        second = await client.post(
-            f"/orders/{order_id}/payment-webhook",
-            json={"status": "APPROVED", "transaction_id": "tx-dup-2"},
-        )
-        assert second.status_code == 409
-
     async def test_invalid_status_returns_422(self, client: httpx.AsyncClient) -> None:
         fake_id = str(uuid.uuid4())
         response = await client.post(
@@ -291,3 +263,41 @@ class TestWebhookErrors:
             json={"status": "INVALID", "transaction_id": "tx-bad"},
         )
         assert response.status_code == 422
+
+    @respx.mock
+    async def test_high_volume_webhooks_applies_changes_only_once(self, client: httpx.AsyncClient) -> None:
+        user_id = str(uuid.uuid4())
+
+        order_id = await _create_order_via_api(client, user_id)
+
+        # Mocks para efectos secundarios del webhook
+        respx.post("http://inventory-service:8000/internal/products/stock/commit").mock(
+            return_value=httpx.Response(200, json={"data": {"order_id": order_id, "committed_products": []}}),
+        )
+        respx.delete(f"http://cart-service:8000/cart/{user_id}").mock(
+            return_value=httpx.Response(204),
+        )
+
+        tasks = [
+            client.post(
+                f"/orders/{order_id}/payment-webhook",
+                json={"status": "APPROVED", "transaction_id": "tx-dup-1"},
+            )
+            for i in range(100)
+        ]
+
+        await asyncio.gather(*tasks)
+
+        detail_response = await client.get(
+            f"/orders/{order_id}",
+                    headers={"X-User-Id": user_id},
+                )
+
+        assert detail_response.status_code == 200
+        history = detail_response.json()["status_history"]
+        order_history = [event for event in history if event["item_id"] is None]
+        assert len(order_history) == 2 # NONE -> PENDIENTE_DE_PAGO & PENDIENTE_DE_PAGO -> CONFIRMADA
+        assert any(
+            event["origin"] == "webhook" and event["new_status"] == "CONFIRMADA"
+            for event in order_history
+        )

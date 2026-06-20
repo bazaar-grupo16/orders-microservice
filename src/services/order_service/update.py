@@ -34,9 +34,6 @@ async def update_order_status(
 	target_status = OrderStatus(new_status)
 	validate_transition(current_status, target_status)
 
-	if tracking_code is not None:
-		order = await order_repository.update_tracking_code(db, order, tracking_code)
-
 	order = await order_repository.update_status(
 		db,
 		order,

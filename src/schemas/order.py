@@ -86,17 +86,17 @@ class OrderResponse(BaseModel):
 
     @computed_field
     @property
-    def aggregated_status(self) -> str | None:
+    def aggregated_status(self) -> str:
         """Compute aggregated logistic status from items.
         
-        Returns None if no items exist. Otherwise returns the most restrictive state:
+        Returns the most restrictive state:
         - If any item is EN_PREPARACION → EN_PREPARACION
         - If any item is ENVIADO → ENVIADA
         - If all are ENTREGADA → ENTREGADA
         - If all are CANCELADA → CANCELADA
         """
         if not self.items:
-            return None
+            return self.status
 
         if self.status in (
             OrderStatus.PENDIENTE_DE_PAGO, OrderStatus.PAGO_RECHAZADO, OrderStatus.CANCELADA,
@@ -109,7 +109,7 @@ class OrderResponse(BaseModel):
         
         if len(item_statuses) == 1:
             single_status = item_statuses.pop()
-            return ITEM_STATUS_TO_ORDER_STATUS.get(single_status, None)
+            return ITEM_STATUS_TO_ORDER_STATUS.get(single_status, self.status)
         
         if OrderItemLogisticStatus.ENVIADO.value in item_statuses:
             return OrderStatus.ENVIADA.value
@@ -121,7 +121,7 @@ class OrderResponse(BaseModel):
             return OrderStatus.ENTREGADA.value
         
         majority_status = max(item_statuses, key=lambda s: list(ITEM_STATUS_TO_ORDER_STATUS.keys()).index(s))
-        return ITEM_STATUS_TO_ORDER_STATUS.get(majority_status, None)
+        return ITEM_STATUS_TO_ORDER_STATUS.get(majority_status, self.status)
 
 
 class OrderCreatedResponse(BaseModel):
