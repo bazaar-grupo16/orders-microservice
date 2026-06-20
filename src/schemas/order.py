@@ -8,9 +8,8 @@ from the ``X-User-Id`` header injected by NGINX after JWT validation.
 from datetime import datetime
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, computed_field
+from pydantic import BaseModel, ConfigDict, Field
 
-from src.models.order_status import ITEM_STATUS_TO_ORDER_STATUS, OrderItemLogisticStatus, OrderStatus
 from src.schemas.address import ShippingAddress
 
 
@@ -83,45 +82,7 @@ class OrderResponse(BaseModel):
     updated_at: datetime
     items: list[OrderItemDetailResponse] = []
     status_history: list[OrderStatusHistoryResponse] = []
-
-    @computed_field
-    @property
-    def aggregated_status(self) -> str:
-        """Compute aggregated logistic status from items.
-        
-        Returns the most restrictive state:
-        - If any item is EN_PREPARACION → EN_PREPARACION
-        - If any item is ENVIADO → ENVIADA
-        - If all are ENTREGADA → ENTREGADA
-        - If all are CANCELADA → CANCELADA
-        """
-        if not self.items:
-            return self.status
-
-        if self.status in (
-            OrderStatus.PENDIENTE_DE_PAGO, OrderStatus.PAGO_RECHAZADO, OrderStatus.CANCELADA,
-            OrderStatus.REEMBOLSO_EN_PROCESO, OrderStatus.REEMBOLSO_PROCESADO
-            ):
-            return self.status
-        
-        item_statuses = {item.status for item in self.items}
-
-        
-        if len(item_statuses) == 1:
-            single_status = item_statuses.pop()
-            return ITEM_STATUS_TO_ORDER_STATUS.get(single_status, self.status)
-        
-        if OrderItemLogisticStatus.ENVIADO.value in item_statuses:
-            return OrderStatus.ENVIADA.value
-        if OrderItemLogisticStatus.EN_PREPARACION.value in item_statuses:
-            return OrderStatus.EN_PREPARACION.value
-        if OrderItemLogisticStatus.CONFIRMADO.value in item_statuses:
-            return OrderStatus.CONFIRMADA.value
-        if OrderItemLogisticStatus.ENTREGADO.value in item_statuses:
-            return OrderStatus.ENTREGADA.value
-        
-        majority_status = max(item_statuses, key=lambda s: list(ITEM_STATUS_TO_ORDER_STATUS.keys()).index(s))
-        return ITEM_STATUS_TO_ORDER_STATUS.get(majority_status, self.status)
+    aggregated_status: str
 
 
 class OrderCreatedResponse(BaseModel):

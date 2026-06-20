@@ -158,6 +158,7 @@ async def list_orders(
     for order in orders:
         order_dict = order.__dict__.copy()
         order_dict["order_id"] = order.id
+        order_dict["aggregated_status"] = order.aggregated_status
         order_responses.append(OrderResponse.model_validate(order_dict))
 
     return OrderListResponse(
@@ -206,6 +207,7 @@ async def confirm_item_delivery(
 
     order_dict = order.__dict__.copy()
     order_dict["order_id"] = order.id
+    order_dict["aggregated_status"] = order.aggregated_status
     order_dict["items"] = item_dicts
     order_dict["status_history"] = full_history
     return OrderResponse.model_validate(order_dict)
@@ -237,6 +239,7 @@ async def list_sales(
     for order in orders:
         order_dict = order.__dict__.copy()
         order_dict["order_id"] = order.id
+        order_dict["aggregated_status"] = order.aggregated_status
 
         filtered_items = []
         for item in order.items:
@@ -295,6 +298,7 @@ async def get_seller_order(
         
     order_dict = order.__dict__.copy()
     order_dict["order_id"] = order.id
+    order_dict["aggregated_status"] = order.aggregated_status
     order_dict["items"] = seller_item_dicts
     order_dict["status_history"] = seller_history
     order_dict["total_amount"] = sum(item.unit_price * item.quantity for item in seller_items)
@@ -343,6 +347,7 @@ async def update_item_status(
         
     order_dict = order.__dict__.copy()
     order_dict["order_id"] = order.id
+    order_dict["aggregated_status"] = order.aggregated_status
     order_dict["items"] = [i for i in order.items if i.seller_id == user_id]
         
     logger.debug(
@@ -388,6 +393,7 @@ async def get_order(
         
     order_dict = order.__dict__.copy()
     order_dict["order_id"] = order.id
+    order_dict["aggregated_status"] = order.aggregated_status
     order_dict["items"] = item_dicts
     order_dict["status_history"] = full_history
     return OrderResponse.model_validate(order_dict)
@@ -472,6 +478,7 @@ async def _serialize_order(service, db: DbSession, order) -> OrderResponse:
 
     order_dict = order.__dict__.copy()
     order_dict["order_id"] = order.id
+    order_dict["aggregated_status"] = order.aggregated_status
     order_dict["items"] = item_dicts
     order_dict["status_history"] = full_history
     return OrderResponse.model_validate(order_dict)

@@ -13,7 +13,8 @@ not the logistic state. The logistic state is derived from items.
 
 import uuid
 
-from sqlalchemy import JSON, DateTime, Numeric, String
+from sqlalchemy import JSON, DateTime, Numeric, String, case, exists
+from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from src.core.database import Base
@@ -75,6 +76,67 @@ class Order(Base):
         cascade="all, delete-orphan",
         lazy="selectin",
     )
+
+    @hybrid_property
+    def aggregated_status(self) -> str:
+        """Compute aggregated logistic status from items in Python."""
+        if not self.items:
+            return self.status
+
+        if self.status in (
+            OrderStatus.PENDIENTE_DE_PAGO.value,
+            OrderStatus.PAGO_RECHAZADO.value,
+            OrderStatus.CANCELADA.value,
+            OrderStatus.REEMBOLSO_EN_PROCESO.value,
+            OrderStatus.REEMBOLSO_PROCESADO.value,
+        ):
+            return self.status
+
+        item_statuses = {item.status for item in self.items}
+        if len(item_statuses) == 1:
+            single_status = item_statuses.pop()
+            from src.models.order_status import ITEM_STATUS_TO_ORDER_STATUS
+            return ITEM_STATUS_TO_ORDER_STATUS.get(single_status, self.status)
+
+        from src.models.order_status import OrderItemLogisticStatus
+        if OrderItemLogisticStatus.ENVIADO.value in item_statuses:
+            return OrderStatus.ENVIADA.value
+        if OrderItemLogisticStatus.EN_PREPARACION.value in item_statuses:
+            return OrderStatus.EN_PREPARACION.value
+        if OrderItemLogisticStatus.CONFIRMADO.value in item_statuses:
+            return OrderStatus.CONFIRMADA.value
+        if OrderItemLogisticStatus.ENTREGADO.value in item_statuses:
+            return OrderStatus.ENTREGADA.value
+
+        return self.status
+
+    @aggregated_status.expression
+    def aggregated_status(cls):
+        """Compute aggregated logistic status from items in SQL."""
+        from src.models.order_item import OrderItem
+
+        has_enviado = exists().where(OrderItem.order_id == cls.id, OrderItem.status == "ENVIADO").correlate(cls)
+        has_preparacion = exists().where(OrderItem.order_id == cls.id, OrderItem.status == "EN_PREPARACION").correlate(cls)
+        has_confirmado = exists().where(OrderItem.order_id == cls.id, OrderItem.status == "CONFIRMADO").correlate(cls)
+        has_entregado = exists().where(OrderItem.order_id == cls.id, OrderItem.status == "ENTREGADO").correlate(cls)
+
+        return case(
+            (
+                cls.status.in_([
+                    "PENDIENTE_DE_PAGO",
+                    "PAGO_RECHAZADO",
+                    "CANCELADA",
+                    "REEMBOLSO_EN_PROCESO",
+                    "REEMBOLSO_PROCESADO",
+                ]),
+                cls.status,
+            ),
+            (has_enviado, "ENVIADA"),
+            (has_preparacion, "EN_PREPARACION"),
+            (has_confirmado, "CONFIRMADA"),
+            (has_entregado, "ENTREGADA"),
+            else_=cls.status,
+        )
 
     def __repr__(self) -> str:
         return f"<Order {self.id} status={self.status}>"

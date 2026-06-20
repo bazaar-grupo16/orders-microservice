@@ -165,6 +165,10 @@ class TestListByUser:
         await order_repository.update_status(
             db_session, confirmed, OrderStatus.CONFIRMADA,
         )
+        for item in confirmed.items:
+            await order_repository.update_item_status(
+                db_session, item, "CONFIRMADO",
+            )
 
         orders, total = await order_repository.list_by_user(
             db_session, user_id, status_filter=OrderStatus.CONFIRMADA,

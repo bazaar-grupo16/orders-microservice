@@ -45,6 +45,7 @@ async def list_all_orders_admin(
     for order in orders:
         order_dict = order.__dict__.copy()
         order_dict["order_id"] = order.id
+        order_dict["aggregated_status"] = order.aggregated_status
         order_responses.append(OrderResponse.model_validate(order_dict))
 
     return OrderListResponse(
@@ -85,6 +86,7 @@ async def get_order_detail_admin(
 
     order_dict = order.__dict__.copy()
     order_dict["order_id"] = order.id
+    order_dict["aggregated_status"] = order.aggregated_status
     order_dict["items"] = item_dicts
     order_dict["status_history"] = full_history
     return OrderResponse.model_validate(order_dict)

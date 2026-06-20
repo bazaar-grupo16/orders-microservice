@@ -96,7 +96,7 @@ async def list_by_user(
     """
     stmt = select(Order).where(Order.user_id == user_id)
     if status_filter:
-        stmt = stmt.where(Order.status == status_filter)
+        stmt = stmt.where(Order.aggregated_status == status_filter)
     if seller_id is not None:
         has_seller_items = exists().where(
             OrderItem.order_id == Order.id,
@@ -106,7 +106,7 @@ async def list_by_user(
 
     count_stmt = select(func.count(Order.id)).where(Order.user_id == user_id)
     if status_filter:
-        count_stmt = count_stmt.where(Order.status == status_filter)
+        count_stmt = count_stmt.where(Order.aggregated_status == status_filter)
     if seller_id is not None:
         count_stmt = count_stmt.where(has_seller_items)
     total = (await db.execute(count_stmt)).scalar() or 0
@@ -131,11 +131,11 @@ async def list_all(
     """Return a paginated list of all orders in the system."""
     stmt = select(Order)
     if status_filter:
-        stmt = stmt.where(Order.status == status_filter)
+        stmt = stmt.where(Order.aggregated_status == status_filter)
 
     count_stmt = select(func.count(Order.id))
     if status_filter:
-        count_stmt = count_stmt.where(Order.status == status_filter)
+        count_stmt = count_stmt.where(Order.aggregated_status == status_filter)
     total = (await db.execute(count_stmt)).scalar() or 0
 
     orders_stmt = (
@@ -182,7 +182,7 @@ async def list_by_seller(
     """
     stmt = select(Order)
     if status_filter:
-        stmt = stmt.where(Order.status == status_filter)
+        stmt = stmt.where(Order.aggregated_status == status_filter)
 
     has_seller_items = exists().where(
         OrderItem.order_id == Order.id,
@@ -192,7 +192,7 @@ async def list_by_seller(
 
     count_stmt = select(func.count(Order.id)).where(has_seller_items)
     if status_filter:
-        count_stmt = count_stmt.where(Order.status == status_filter)
+        count_stmt = count_stmt.where(Order.aggregated_status == status_filter)
     total = (await db.execute(count_stmt)).scalar() or 0
 
     orders_stmt = (

@@ -24,7 +24,7 @@ class MetricsRepository:
             Order.created_at <= end_date,
         )
         revenue_amount = case(
-            (Order.status.in_(REVENUE_ELIGIBLE_STATUSES), Order.total_amount),
+            (Order.aggregated_status.in_(REVENUE_ELIGIBLE_STATUSES), Order.total_amount),
             else_=0,
         )
 
@@ -42,16 +42,21 @@ class MetricsRepository:
         self, start_date: datetime, end_date: datetime
     ) -> dict[str, int]:
         """Calcula la cantidad de órdenes agrupadas por estado."""
-        query = select(
-            Order.status,
-            func.count(Order.id).label("status_count")
+        subquery = select(
+            Order.id,
+            Order.aggregated_status.label("agg_status")
         ).where(
             Order.created_at >= start_date,
             Order.created_at <= end_date
-        ).group_by(Order.status)
+        ).subquery()
+
+        query = select(
+            subquery.c.agg_status.label("aggregated_status"),
+            func.count(subquery.c.id).label("status_count")
+        ).group_by(subquery.c.agg_status)
 
         result = await self.session.execute(query)
-        return {row.status: row.status_count for row in result.all()}
+        return {row.aggregated_status: row.status_count for row in result.all()}
 
     async def get_orders_timeseries(
         self, start_date: datetime, end_date: datetime, interval: str
@@ -59,7 +64,7 @@ class MetricsRepository:
         """Calcula la serie de tiempo agrupando por intervalo (day, week, month)."""
         time_bucket = func.date_trunc(interval, Order.created_at).label("time_bucket")
         revenue_amount = case(
-            (Order.status.in_(REVENUE_ELIGIBLE_STATUSES), Order.total_amount),
+            (Order.aggregated_status.in_(REVENUE_ELIGIBLE_STATUSES), Order.total_amount),
             else_=0,
         )
 
@@ -98,7 +103,7 @@ class MetricsRepository:
         ).where(
             Order.created_at >= start_date,
             Order.created_at <= end_date,
-            Order.status.in_(REVENUE_ELIGIBLE_STATUSES),
+            Order.aggregated_status.in_(REVENUE_ELIGIBLE_STATUSES),
         ).group_by(
             OrderItem.product_id,
             OrderItem.product_name
@@ -130,7 +135,7 @@ class MetricsRepository:
         ).where(
             Order.created_at >= start_date,
             Order.created_at <= end_date,
-            Order.status.in_(REVENUE_ELIGIBLE_STATUSES),
+            Order.aggregated_status.in_(REVENUE_ELIGIBLE_STATUSES),
         ).group_by(
             OrderItem.category
         ).order_by(
