@@ -39,9 +39,10 @@ async def notify_order_status_changed(
         identifier += f" +{len(order_items) - 1} items"
 
     payload = {
-        "order_id": identifier,
+        "order_id": str(order_id),
         "buyer_id": str(buyer_id),
         "new_status": new_status,
+        "order_name": identifier,
     }
     if tracking_code is not None:
         payload["tracking_code"] = tracking_code
