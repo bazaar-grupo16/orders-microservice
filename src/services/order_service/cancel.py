@@ -132,6 +132,22 @@ async def cancel_order_item(
         origin=by,
     )
 
+    if by == "seller":
+        try:
+            from src.clients import notifications_client
+            await notifications_client.notify_order_item_status_changed(
+                item=item,
+                new_status=OrderItemLogisticStatus.CANCELADO.value,
+                buyer_id=order.user_id,
+            )
+        except Exception as exc:
+            logger.warning(
+                "Unexpected notifications client error on item cancellation: order=%s item=%s exc=%s",
+                order.id,
+                item.id,
+                exc,
+            )
+
     all_items_cancelled = all(
         order_item.status == OrderItemLogisticStatus.CANCELADO.value
         for order_item in order.items

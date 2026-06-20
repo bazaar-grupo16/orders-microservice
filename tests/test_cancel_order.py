@@ -100,6 +100,9 @@ def _mock_cancel_side_effects(order_id: uuid.UUID):
     respx.post(
         f"http://payments-service:8000/payments/{order_id}/cancel"
     ).mock(return_value=httpx.Response(200))
+    respx.post(
+        "http://notifications-service:8000/notifications/order-item-status-changed"
+    ).mock(return_value=httpx.Response(201))
     return rollback_route, item_rollback_route, refund_route
 
 
@@ -330,6 +333,9 @@ class TestCancelOrderBySeller:
         refund_route = respx.post(
             f"http://payments-service:8000/payments/{order.id}/refund"
         ).mock(return_value=httpx.Response(200))
+        respx.post(
+            "http://notifications-service:8000/notifications/order-item-status-changed"
+        ).mock(return_value=httpx.Response(201))
 
         response = await client.post(
             f"/orders/sales/{order.id}/items/{item_id}/cancel",
