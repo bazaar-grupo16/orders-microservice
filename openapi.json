@@ -63,7 +63,7 @@
           "Orders"
         ],
         "summary": "Create a new order (Saga orchestration)",
-        "description": "Start the checkout Saga.\n\n1. Check idempotency key.\n2. Fetch the user's cart.\n3. Reserve stock in Inventory.\n4. Persist order as ``PENDIENTE_DE_PAGO``.\n\nThe ``Idempotency-Key`` header is **required** \u2014 a UUID v4 generated\nby the mobile app when the user taps \"Pay\".",
+        "description": "Start the checkout Saga.",
         "operationId": "create_order_orders_post",
         "parameters": [
           {
@@ -240,7 +240,7 @@
           "Orders"
         ],
         "summary": "Payment webhook \u2014 Saga resolution",
-        "description": "Callback from the Payments service to resolve the Saga.\n\nThis is an **internal endpoint** \u2014 called by the Payments service\nover the K8s internal network.  No ``X-User-Id`` header is required.\n\n- ``SUCCESS`` \u2192 ``CONFIRMADA`` + commit stock + clear cart.\n- ``FAILED``  \u2192 ``PAGO_RECHAZADO`` + rollback stock (compensation).",
+        "description": "Callback from the Payments service to resolve the Saga.",
         "operationId": "payment_webhook_orders__order_id__payment_webhook_post",
         "parameters": [
           {
@@ -494,7 +494,7 @@
           "Orders"
         ],
         "summary": "List sales for the current seller",
-        "description": "Retrieve paginated orders that contain items sold by the\nauthenticated user. Each returned order will include only the\nitems that belong to this seller.",
+        "description": "Retrieve paginated orders that contain items sold by the authenticated user.",
         "operationId": "list_sales_orders_sales_get",
         "parameters": [
           {
@@ -580,7 +580,7 @@
           "Orders"
         ],
         "summary": "Get a specific order for seller",
-        "description": "Retrieve a single order by ID, showing only items sold by the user.\n    \nValidates that the order contains at least one item sold by the user.",
+        "description": "Retrieve a single order by ID, showing only items sold by the user.",
         "operationId": "get_seller_order_orders_sales__order_id__get",
         "parameters": [
           {
@@ -640,7 +640,7 @@
           "Orders"
         ],
         "summary": "Update item logistic status (Seller)",
-        "description": "Update the logistic status of an order item.\n    \nOnly sellers can update items they sold. The transition is validated\nagainst the item logistic state machine.",
+        "description": "Update the logistic status of an order item.",
         "operationId": "update_item_status_orders_sales__order_id__items__item_id__status_patch",
         "parameters": [
           {
@@ -720,7 +720,7 @@
           "Orders"
         ],
         "summary": "Get a specific order",
-        "description": "Retrieve a single order by ID.\n    \nThe order must belong to the authenticated user.",
+        "description": "Retrieve a single order by ID.",
         "operationId": "get_order_orders__order_id__get",
         "parameters": [
           {
@@ -849,7 +849,7 @@
           "Orders"
         ],
         "summary": "Update order status (Seller)",
-        "description": "Update the status of an order.\n    \nThis endpoint allows sellers to transition an order through its\nfulfillment lifecycle (e.g., CONFIRMADA -> EN_PREPARACION).",
+        "description": "Update the status of an order.",
         "operationId": "update_order_status_orders__order_id__status_patch",
         "parameters": [
           {
@@ -903,7 +903,7 @@
           "Orders"
         ],
         "summary": "Callback from Payments service when a refund is processed",
-        "description": "Callback from the Payments service to update item status after a refund.\n\nThis is an **internal endpoint** \u2014 called by the Payments service\nover the K8s internal network.  No ``X-User-Id`` header is required.\n\n- ``approved`` \u2192 Item status updated to ``REEMBOLSO_PROCESADO``.\n- ``rejected`` or ``canceled`` \u2192 Item status remains unchanged, but logged.",
+        "description": "Callback from the Payments service to update item status after a refund.",
         "operationId": "refund_webhook_orders__order_id__refund_webhook_post",
         "parameters": [
           {
@@ -1750,17 +1750,8 @@
             "default": []
           },
           "aggregated_status": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Aggregated Status",
-            "description": "Compute aggregated logistic status from items.\n\nReturns None if no items exist. Otherwise returns the most restrictive state:\n- If any item is EN_PREPARACION \u2192 EN_PREPARACION\n- If any item is ENVIADO \u2192 ENVIADA\n- If all are ENTREGADA \u2192 ENTREGADA\n- If all are CANCELADA \u2192 CANCELADA",
-            "readOnly": true
+            "type": "string",
+            "title": "Aggregated Status"
           }
         },
         "type": "object",
