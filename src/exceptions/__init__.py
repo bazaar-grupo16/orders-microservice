@@ -75,3 +75,10 @@ class PaymentsServiceError(Exception):
         self.detail = detail
         super().__init__(detail)
 
+
+class InvalidCartItemError(Exception):
+    """Raised when a cart item is invalid for purchase (e.g. inactive or blocked)."""
+
+    def __init__(self, detail: str) -> None:
+        self.detail = detail
+        super().__init__(detail)

@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import IntegrityError
 
 from src.clients import cart_client, inventory_client, payments_client
-from src.exceptions import InsufficientStockError, PaymentsServiceError
+from src.exceptions import InsufficientStockError, PaymentsServiceError, InvalidCartItemError
 from src.models.order import Order
 from src.models.order_status import OrderStatus
 from src.repositories import order_repository, idempotency_repository
@@ -38,6 +38,13 @@ async def create_order(
 
 
     cart_items = await cart_client.get_cart(user_id)
+    
+    for item in cart_items:
+        if item.get("status") == "inactive":
+            raise InvalidCartItemError(f"Product '{item['product_name']}' is inactive and cannot be purchased.")
+        if item.get("is_blocked"):
+            raise InvalidCartItemError(f"Product '{item['product_name']}' is blocked and cannot be purchased.")
+            
     order_id = uuid.uuid4()
     await _reserve_stock(order_id, cart_items)
 

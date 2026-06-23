@@ -52,6 +52,8 @@ def _normalise_cart_item(raw: dict[str, Any]) -> dict[str, Any]:
         "seller_id": raw.get("sellerId"),  # Optional field
         "quantity": raw["quantity"],
         "unit_price": float(Decimal(raw["unitPrice"]["value"])),
+        "status": raw.get("status", "active"),
+        "is_blocked": raw.get("isBlocked", False),
     }
 
 
