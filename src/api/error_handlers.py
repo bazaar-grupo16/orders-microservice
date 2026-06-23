@@ -18,6 +18,7 @@ from src.exceptions import (
     OrderNotFoundError,
     PaymentsServiceError,
     DuplicateRequest,
+    InvalidCartItemError,
 )
 from src.models.state_machine import InvalidStateTransitionError
 
@@ -116,3 +117,9 @@ def register_error_handlers(app: FastAPI) -> None:
             },
             media_type=_PROBLEM_JSON,
         )
+
+    @app.exception_handler(InvalidCartItemError)
+    async def _invalid_cart_item(
+        _request: Request, exc: InvalidCartItemError,
+    ) -> JSONResponse:
+        return _problem(400, "Invalid Cart Item", str(exc))
